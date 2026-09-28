@@ -21,26 +21,24 @@ if [ ! -f "${ROOT_DIR}/arm_64/yt-dlp" ]; then
     chmod +x "${ROOT_DIR}/arm_64/yt-dlp"
 fi
 
-echo "==> Downloading pure static ffmpeg / ffprobe binaries (John Van Sickle release)..."
-# x86_64 ffmpeg
+echo "==> Downloading pure static ffmpeg / ffprobe binaries (ffbinaries GitHub release)..."
+# x86_64 ffmpeg & ffprobe
 if [ ! -f "${ROOT_DIR}/x86_64/ffmpeg" ] || [ ! -f "${ROOT_DIR}/x86_64/ffprobe" ]; then
     echo "Fetching x86_64 pure static ffmpeg & ffprobe..."
-    curl -fSL "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz" -o /tmp/ytdlp_dl_tmp/ffmpeg-amd64.tar.xz
-    tar -xf /tmp/ytdlp_dl_tmp/ffmpeg-amd64.tar.xz -C /tmp/ytdlp_dl_tmp/
-    SRC_DIR=$(find /tmp/ytdlp_dl_tmp -maxdepth 1 -type d -name "ffmpeg-*-amd64-static" | head -n 1)
-    cp "${SRC_DIR}/ffmpeg" "${ROOT_DIR}/x86_64/ffmpeg"
-    cp "${SRC_DIR}/ffprobe" "${ROOT_DIR}/x86_64/ffprobe"
+    curl -fSL "https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v6.1/ffmpeg-6.1-linux-64.zip" -o /tmp/ytdlp_dl_tmp/ffmpeg-linux-64.zip
+    curl -fSL "https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v6.1/ffprobe-6.1-linux-64.zip" -o /tmp/ytdlp_dl_tmp/ffprobe-linux-64.zip
+    unzip -o /tmp/ytdlp_dl_tmp/ffmpeg-linux-64.zip -d "${ROOT_DIR}/x86_64/"
+    unzip -o /tmp/ytdlp_dl_tmp/ffprobe-linux-64.zip -d "${ROOT_DIR}/x86_64/"
     chmod +x "${ROOT_DIR}/x86_64/ffmpeg" "${ROOT_DIR}/x86_64/ffprobe"
 fi
 
-# arm_64 ffmpeg
+# arm_64 ffmpeg & ffprobe
 if [ ! -f "${ROOT_DIR}/arm_64/ffmpeg" ] || [ ! -f "${ROOT_DIR}/arm_64/ffprobe" ]; then
     echo "Fetching arm_64 pure static ffmpeg & ffprobe..."
-    curl -fSL "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-arm64-static.tar.xz" -o /tmp/ytdlp_dl_tmp/ffmpeg-arm64.tar.xz
-    tar -xf /tmp/ytdlp_dl_tmp/ffmpeg-arm64.tar.xz -C /tmp/ytdlp_dl_tmp/
-    SRC_DIR=$(find /tmp/ytdlp_dl_tmp -maxdepth 1 -type d -name "ffmpeg-*-arm64-static" | head -n 1)
-    cp "${SRC_DIR}/ffmpeg" "${ROOT_DIR}/arm_64/ffmpeg"
-    cp "${SRC_DIR}/ffprobe" "${ROOT_DIR}/arm_64/ffprobe"
+    curl -fSL "https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v6.1/ffmpeg-6.1-linux-arm-64.zip" -o /tmp/ytdlp_dl_tmp/ffmpeg-linux-arm-64.zip
+    curl -fSL "https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v6.1/ffprobe-6.1-linux-arm-64.zip" -o /tmp/ytdlp_dl_tmp/ffprobe-linux-arm-64.zip
+    unzip -o /tmp/ytdlp_dl_tmp/ffmpeg-linux-arm-64.zip -d "${ROOT_DIR}/arm_64/"
+    unzip -o /tmp/ytdlp_dl_tmp/ffprobe-linux-arm-64.zip -d "${ROOT_DIR}/arm_64/"
     chmod +x "${ROOT_DIR}/arm_64/ffmpeg" "${ROOT_DIR}/arm_64/ffprobe"
 fi
 
