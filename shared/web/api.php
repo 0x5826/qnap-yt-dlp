@@ -350,6 +350,39 @@ function handle_parse_url($input) {
 function handle_get_tasks() {
     trigger_scheduler_tick();
     $tasks = get_tasks();
+    $needs_save = false;
+
+    foreach ($tasks as &$t) {
+        $st = $t['status'] ?? '';
+        $tid = $t['id'] ?? '';
+        if ($st === 'completed' && (!isset($t['total_size']) || empty($t['total_size']) || $t['total_size'] === '完整' || $t['total_size'] === '--')) {
+            $out_log = LOGS_DIR . '/tasks/' . $tid . '/output.log';
+            if (file_exists($out_log)) {
+                $meta = inspect_task_log($out_log);
+                $tgt = $meta['target_file'] ?: ($t['target_file'] ?? $meta['dest_file'] ?? $t['dest_file'] ?? '');
+                if (!empty($tgt) && file_exists($tgt)) {
+                    $t['total_size'] = format_bytes(filesize($tgt));
+                    $t['target_file'] = $tgt;
+                } elseif (!empty($meta['total_size'])) {
+                    $t['total_size'] = $meta['total_size'];
+                } elseif (!empty($meta['last_downloaded'])) {
+                    $t['total_size'] = $meta['last_downloaded'];
+                }
+
+                if ((empty($t['final_speed']) || $t['final_speed'] === '已完成' || $t['final_speed'] === '--') && !empty($meta['final_speed'])) {
+                    $t['final_speed'] = $meta['final_speed'];
+                    $t['speed'] = $meta['final_speed'];
+                }
+                $needs_save = true;
+            }
+        }
+    }
+    unset($t);
+
+    if ($needs_save) {
+        save_tasks($tasks);
+    }
+
     $tasks = array_reverse($tasks);
     json_response(['code' => 0, 'data' => $tasks]);
 }

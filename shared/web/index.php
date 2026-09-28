@@ -1465,8 +1465,8 @@ endif;
 
                     let infoRowHtml = '';
                     if (t.status === 'completed') {
-                        const totalSz = t.total_size || t.downloaded || '完整';
-                        const spd = t.final_speed || t.speed || '--';
+                        const totalSz = (t.total_size && t.total_size !== '--') ? t.total_size : (t.downloaded || '完整');
+                        const spd = (t.final_speed && t.final_speed !== '--') ? t.final_speed : (t.speed || '--');
                         const cost = t.time_cost_str || '--';
                         infoRowHtml = `
                             <span>大小: <strong style="color: var(--text-main);">${escapeHtml(totalSz)}</strong></span>
@@ -1474,10 +1474,13 @@ endif;
                             <span>耗时: <strong style="color: #38bdf8;">${escapeHtml(cost)}</strong></span>
                         `;
                     } else if (t.status === 'downloading' || t.status === 'merging') {
+                        const dlSizeStr = (t.downloaded && t.total_size && t.total_size !== '--') ? ` (${escapeHtml(t.downloaded)} / ${escapeHtml(t.total_size)})` : '';
+                        const currentSpd = (t.status === 'merging') ? '转码合并中' : (t.speed || '--');
+                        const currentEta = (t.status === 'merging') ? '处理中' : (t.eta || '--');
                         infoRowHtml = `
-                            <span>进度: <strong style="color: var(--text-main);">${progress.toFixed(1)}%</strong></span>
-                            <span>速率: <strong style="color: #10b981;">${escapeHtml(t.speed || '--')}</strong></span>
-                            <span>剩余: <strong style="color: #38bdf8;">${escapeHtml(t.eta || '--')}</strong></span>
+                            <span>进度: <strong style="color: var(--text-main);">${progress.toFixed(1)}%${dlSizeStr}</strong></span>
+                            <span>速率: <strong style="color: #10b981;">${escapeHtml(currentSpd)}</strong></span>
+                            <span>剩余: <strong style="color: #38bdf8;">${escapeHtml(currentEta)}</strong></span>
                         `;
                     } else {
                         infoRowHtml = `

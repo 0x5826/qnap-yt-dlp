@@ -108,8 +108,8 @@ if (!empty($custom_args)) {
     $cmd .= ' ' . $custom_args;
 }
 
-// Progress template for machine parsing
-$cmd .= ' --newline --progress-template ' . escapeshellarg('download:%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s|%(progress._downloaded_bytes_str)s|%(progress._total_bytes_str)s');
+// Progress template for machine parsing (download: is stripped by yt-dlp as type prefix)
+$cmd .= ' --newline --progress-template ' . escapeshellarg('download:YTDLP_PROGRESS:%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s|%(progress._downloaded_bytes_str)s|%(progress._total_bytes_str)s');
 
 // Target URL
 $cmd .= ' ' . escapeshellarg($task['url']);

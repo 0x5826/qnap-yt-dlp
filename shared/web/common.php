@@ -333,3 +333,127 @@ function trigger_scheduler_tick() {
     }
 }
 
+/**
+ * 解析单行下载日志，提取进度、速率、剩余时间与大小
+ * 全面兼容：YTDLP_PROGRESS 前缀、download 前缀、以及无前缀的纯管道符百分比行
+ */
+function parse_ytdlp_log_line($line) {
+    $line = trim($line);
+    if (empty($line)) return null;
+
+    $raw = '';
+    if (strpos($line, 'YTDLP_PROGRESS:') !== false) {
+        $raw = substr($line, strpos($line, 'YTDLP_PROGRESS:') + 15);
+    } elseif (strpos($line, 'download:') === 0) {
+        $raw = substr($line, 9);
+    } elseif (preg_match('/^([\d\.]+)%\s*\|\s*([^\|]+)\s*\|\s*([^\|]+)\s*\|\s*([^\|]+)\s*\|\s*([^\|]+)/', $line, $m)) {
+        $raw = "{$m[1]}%|{$m[2]}|{$m[3]}|{$m[4]}|{$m[5]}";
+    }
+
+    if (!empty($raw)) {
+        $parts = explode('|', $raw);
+        if (count($parts) >= 3) {
+            $pct = floatval(str_replace('%', '', trim($parts[0])));
+            $spd = trim($parts[1]);
+            $eta = trim($parts[2]);
+            $dl = isset($parts[3]) ? trim($parts[3]) : '';
+            $sz = isset($parts[4]) ? trim($parts[4]) : '';
+
+            $res = ['progress' => $pct];
+            if (!empty($spd) && $spd !== '--' && $spd !== 'NA' && stripos($spd, 'unknown') === false) {
+                $res['speed'] = $spd;
+            }
+            if (!empty($eta) && $eta !== 'NA' && stripos($eta, 'unknown') === false) {
+                $res['eta'] = $eta;
+            }
+            if (!empty($dl) && $dl !== 'NA') {
+                $res['downloaded'] = $dl;
+            }
+            if (!empty($sz) && $sz !== 'NA' && stripos($sz, 'unknown') === false) {
+                $res['total_size'] = $sz;
+            }
+            return $res;
+        }
+    }
+
+    return null;
+}
+
+/**
+ * 将带单位的大小字符串 (例如 181.66MiB, 15.00KiB) 解析为浮点字节数
+ */
+function parse_size_str($str) {
+    $str = trim(str_ireplace('iB', 'B', $str ?: ''));
+    if (preg_match('/^([\d\.]+)\s*([KMGTP]?B?)$/i', $str, $m)) {
+        $val = floatval($m[1]);
+        $unit = strtoupper($m[2]);
+        if (strpos($unit, 'K') !== false) return $val * 1024;
+        if (strpos($unit, 'M') !== false) return $val * 1024 * 1024;
+        if (strpos($unit, 'G') !== false) return $val * 1024 * 1024 * 1024;
+        if (strpos($unit, 'T') !== false) return $val * 1024 * 1024 * 1024 * 1024;
+        return $val;
+    }
+    return 0;
+}
+
+/**
+ * 从任务 output.log 深度提取关键元数据 (目标生成文件、总大小、最终速率)
+ * 支持音视频双流 (分段音视频) 下载时各流大小的自动聚合累加
+ */
+function inspect_task_log($output_log) {
+    if (!file_exists($output_log)) return [];
+
+    $lines = file($output_log, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
+    $info = [
+        'target_file' => '',
+        'dest_file' => '',
+        'total_size' => '',
+        'final_speed' => '',
+        'last_downloaded' => '',
+        'is_merging' => false
+    ];
+
+    $stream_sizes = [];
+    $current_dest = 'main';
+
+    foreach ($lines as $line) {
+        $line = trim($line);
+        if (preg_match('/Merging formats into [\"\x27]([^\x27\"]+)[\"\x27]/i', $line, $m)) {
+            $info['target_file'] = $m[1];
+            $info['is_merging'] = true;
+        } elseif (preg_match('/\[download\] Destination:\s*(.+)$/i', $line, $m)) {
+            $current_dest = trim($m[1]);
+            if (empty($info['dest_file'])) $info['dest_file'] = $current_dest;
+        } elseif (stripos($line, '[Merger]') !== false || stripos($line, 'Merging formats') !== false) {
+            $info['is_merging'] = true;
+        }
+
+        $parsed = parse_ytdlp_log_line($line);
+        if ($parsed) {
+            if (!empty($parsed['speed'])) {
+                $info['final_speed'] = $parsed['speed'];
+            }
+            if (!empty($parsed['total_size'])) {
+                $sz_bytes = parse_size_str($parsed['total_size']);
+                if ($sz_bytes > 0) {
+                    $stream_sizes[$current_dest] = max($stream_sizes[$current_dest] ?? 0, $sz_bytes);
+                }
+            }
+            if (!empty($parsed['downloaded'])) {
+                $info['last_downloaded'] = $parsed['downloaded'];
+            }
+        }
+    }
+
+    // 优先采用各分段流的最大汇总字节数
+    if (!empty($stream_sizes)) {
+        $total_sum = array_sum($stream_sizes);
+        if ($total_sum > 0) {
+            $info['total_size'] = format_bytes($total_sum);
+        }
+    }
+
+    return $info;
+}
+
+

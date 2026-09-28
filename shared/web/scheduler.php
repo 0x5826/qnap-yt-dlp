@@ -52,28 +52,37 @@ foreach ($tasks as $idx => &$task) {
             // 尝试读取实时进度输出
             $output_log = $task_dir . '/output.log';
             if (file_exists($output_log)) {
-                // 读取最后 10 行提取进度
-                $lines = array_slice(file($output_log, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [], -10);
+                // 读取最后 15 行提取进度与合并状态
+                $lines = array_slice(file($output_log, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [], -15);
                 foreach (array_reverse($lines) as $line) {
-                    if (strpos($line, 'download:') === 0) {
-                        $parts = explode('|', substr($line, 9));
-                        if (count($parts) >= 3) {
-                            $percent_raw = trim($parts[0]);
-                            $task['progress'] = floatval(str_replace('%', '', $percent_raw));
-                            $task['speed'] = trim($parts[1]);
-                            $task['eta'] = trim($parts[2]);
-                            if (isset($parts[3])) $task['downloaded'] = trim($parts[3]);
-                            if (isset($parts[4])) $task['total_size'] = trim($parts[4]);
-                            if (!empty($task['speed']) && $task['speed'] !== '--' && stripos($task['speed'], 'unknown') === false) {
-                                $task['final_speed'] = $task['speed'];
-                            }
-                            $task['updated_at'] = $now;
-                            $tasks_updated = true;
-                            break;
+                    $parsed = parse_ytdlp_log_line($line);
+                    if ($parsed) {
+                        if (isset($parsed['progress']) && $parsed['progress'] > 0) {
+                            $task['progress'] = $parsed['progress'];
                         }
-                    } elseif (stripos($line, '[Merger]') !== false || stripos($line, 'Merging formats') !== false) {
-                        $task['status'] = 'merging';
+                        if (!empty($parsed['speed'])) {
+                            $task['speed'] = $parsed['speed'];
+                            $task['final_speed'] = $parsed['speed'];
+                        }
+                        if (!empty($parsed['eta'])) {
+                            $task['eta'] = $parsed['eta'];
+                        }
+                        if (!empty($parsed['downloaded'])) {
+                            $task['downloaded'] = $parsed['downloaded'];
+                        }
+                        if (!empty($parsed['total_size'])) {
+                            $task['total_size'] = $parsed['total_size'];
+                        }
+                        $task['updated_at'] = $now;
                         $tasks_updated = true;
+                        break;
+                    }
+                    if (preg_match('/Merging formats into [\"\x27]([^\x27\"]+)[\"\x27]/i', $line, $m)) {
+                        $task['status'] = 'merging';
+                        $task['target_file'] = $m[1];
+                        $tasks_updated = true;
+                    } elseif (preg_match('/\[download\] Destination:\s*(.+)$/i', $line, $m)) {
+                        $task['dest_file'] = trim($m[1]);
                     }
                 }
             }
@@ -81,6 +90,7 @@ foreach ($tasks as $idx => &$task) {
             // 进程已退出，检查退出状态码
             $exit_code_file = $task_dir . '/exit_code';
             $exit_code = file_exists($exit_code_file) ? trim(file_get_contents($exit_code_file)) : '-1';
+            $output_log = $task_dir . '/output.log';
 
             if ($exit_code === '0') {
                 $start_time = intval($task['started_at'] ?? $task['created_at'] ?? $now);
@@ -89,26 +99,71 @@ foreach ($tasks as $idx => &$task) {
                 $s = $elapsed % 60;
                 $cost_str = ($m > 0) ? "{$m}分{$s}秒" : "{$s}秒";
 
+                // 深度扫描输出日志获取最终产物路径与元数据
+                $meta = inspect_task_log($output_log);
+                $target_file = $meta['target_file'] ?: ($task['target_file'] ?? $meta['dest_file'] ?? $task['dest_file'] ?? '');
+
+                // 优先探测最终物理落盘文件大小
+                $final_bytes = 0;
+                if (!empty($target_file) && file_exists($target_file)) {
+                    $final_bytes = @filesize($target_file);
+                }
+
+                // 若未直接命中，尝试在下载目录中搜索最近 5 分钟内生成的文件
+                if ($final_bytes <= 0 && !empty($task['download_dir']) && is_dir($task['download_dir'])) {
+                    $dir_files = @scandir($task['download_dir']);
+                    if ($dir_files) {
+                        foreach ($dir_files as $df) {
+                            if ($df === '.' || $df === '..' || substr($df, -5) === '.part') continue;
+                            $candidate = rtrim($task['download_dir'], '/') . '/' . $df;
+                            if (is_file($candidate) && ($now - filemtime($candidate) < 300)) {
+                                $final_bytes = @filesize($candidate);
+                                $target_file = $candidate;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                // 格式化落盘大小
+                if ($final_bytes > 0) {
+                    $task['total_size'] = format_bytes($final_bytes);
+                    $task['downloaded'] = $task['total_size'];
+                    $task['target_file'] = $target_file;
+                } else {
+                    $task['total_size'] = $meta['total_size'] ?: ($task['total_size'] ?? $meta['last_downloaded'] ?? $task['downloaded'] ?? '完整');
+                    if (empty($task['downloaded']) || $task['downloaded'] === '0 B') {
+                        $task['downloaded'] = $task['total_size'];
+                    }
+                }
+
+                // 计算全局平均下载/处理速率
+                $final_spd = '';
+                if ($final_bytes > 0 && $elapsed > 0) {
+                    $avg_speed_val = $final_bytes / $elapsed;
+                    $final_spd = format_bytes($avg_speed_val) . '/s';
+                } elseif (!empty($meta['final_speed'])) {
+                    $final_spd = $meta['final_speed'];
+                } elseif (!empty($task['final_speed']) && $task['final_speed'] !== '--' && stripos($task['final_speed'], 'unknown') === false) {
+                    $final_spd = $task['final_speed'];
+                } else {
+                    $final_spd = '已完成';
+                }
+
                 $task['status'] = 'completed';
                 $task['progress'] = 100;
                 $task['eta'] = '00:00';
                 $task['completed_at'] = $now;
                 $task['elapsed_time'] = $elapsed;
                 $task['time_cost_str'] = $cost_str;
-
-                $final_spd = $task['final_speed'] ?? $task['speed'] ?? '';
-                if (empty($final_spd) || $final_spd === '--' || stripos($final_spd, 'unknown') !== false) {
-                    $final_spd = '已完成';
-                }
                 $task['speed'] = $final_spd;
                 $task['final_speed'] = $final_spd;
 
-                @file_put_contents(CONF_DIR . '/logs/daemon.log', "[" . date('Y-m-d H:i:s') . "] [SUCCESS] 任务 [{$task_id}] 下载并处理完成 (耗时: {$cost_str}, 速率: {$final_spd}): {$task['title']}\n", FILE_APPEND | LOCK_EX);
+                @file_put_contents(CONF_DIR . '/logs/daemon.log', "[" . date('Y-m-d H:i:s') . "] [SUCCESS] 任务 [{$task_id}] 下载并处理完成 (大小: {$task['total_size']}, 耗时: {$cost_str}, 平均速率: {$final_spd}): {$task['title']}\n", FILE_APPEND | LOCK_EX);
             } else {
                 $task['status'] = 'failed';
                 $task['speed'] = '--';
                 // 提取错误日志
-                $output_log = $task_dir . '/output.log';
                 $err_snippet = 'Execution failed with code ' . $exit_code;
                 if (file_exists($output_log)) {
                     $lines = array_slice(file($output_log, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [], -6);
