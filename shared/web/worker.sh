@@ -19,6 +19,8 @@ BIN_DIR="$BASE_DIR/bin"
 TASK_LOG_DIR="$CONF_DIR/logs/tasks/$TASK_ID"
 
 export PATH="$BIN_DIR:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+export TMPDIR="$CONF_DIR/tmp"
+mkdir -p "$CONF_DIR/tmp" 2>/dev/null
 
 mkdir -p "$TASK_LOG_DIR"
 PID_FILE="$TASK_LOG_DIR/worker.pid"

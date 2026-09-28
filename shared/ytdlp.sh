@@ -16,12 +16,15 @@ fi
 BIN_DIR="$QPKG_ROOT/bin"
 CONF_DIR="$QPKG_ROOT/conf"
 LOGS_DIR="$CONF_DIR/logs"
+TMP_DIR="$CONF_DIR/tmp"
 PID_FILE="$CONF_DIR/ytdlp_daemon.pid"
 DAEMON_LOG="$LOGS_DIR/daemon.log"
 
 export PATH="$BIN_DIR:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+export TMPDIR="$TMP_DIR"
 
-mkdir -p "$BIN_DIR" "$CONF_DIR" "$LOGS_DIR" 2>/dev/null
+mkdir -p "$BIN_DIR" "$CONF_DIR" "$LOGS_DIR" "$TMP_DIR" 2>/dev/null
+chmod 777 "$TMP_DIR" 2>/dev/null || true
 
 ######################################################################
 # 架构适配与软链接挂载
@@ -41,17 +44,17 @@ setup_arch_binaries() {
             ;;
     esac
 
-    if [ -d "$src_dir" ]; then
-        for b in yt-dlp ffmpeg ffprobe; do
-            if [ -f "$src_dir/$b" ]; then
-                chmod +x "$src_dir/$b" 2>/dev/null || true
-                ln -sf "$src_dir/$b" "$BIN_DIR/$b" 2>/dev/null || true
-            elif [ -f "$QPKG_ROOT/$b" ]; then
-                chmod +x "$QPKG_ROOT/$b" 2>/dev/null || true
-                ln -sf "$QPKG_ROOT/$b" "$BIN_DIR/$b" 2>/dev/null || true
-            fi
-        done
-    fi
+    for b in yt-dlp ffmpeg ffprobe; do
+        if [ -n "$src_dir" ] && [ -f "$src_dir/$b" ]; then
+            chmod +x "$src_dir/$b" 2>/dev/null || true
+            ln -sf "$src_dir/$b" "$BIN_DIR/$b" 2>/dev/null || true
+        elif [ -f "$QPKG_ROOT/$b" ]; then
+            chmod +x "$QPKG_ROOT/$b" 2>/dev/null || true
+            ln -sf "$QPKG_ROOT/$b" "$BIN_DIR/$b" 2>/dev/null || true
+        elif [ -f "/usr/bin/$b" ]; then
+            ln -sf "/usr/bin/$b" "$BIN_DIR/$b" 2>/dev/null || true
+        fi
+    done
 
     # 暴露 CLI 工具至系统路径
     if [ -f "$BIN_DIR/yt-dlp" ]; then

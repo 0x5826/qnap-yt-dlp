@@ -19,10 +19,14 @@ define('CONFIG_FILE', CONF_DIR . '/config.json');
 define('COOKIES_FILE', CONF_DIR . '/cookies.txt');
 define('PID_FILE', CONF_DIR . '/ytdlp_daemon.pid');
 define('BIN_DIR', BASE_DIR . '/bin');
+define('CUSTOM_TMP_DIR', CONF_DIR . '/tmp');
 
-// 确保核心目录完整存在
+// 关键规避：重定向 TMPDIR 至数据盘，彻底免疫 QTS 系统 /tmp 64MB 内存盘满载崩溃
 if (!is_dir(CONF_DIR)) @mkdir(CONF_DIR, 0755, true);
 if (!is_dir(LOGS_DIR)) @mkdir(LOGS_DIR, 0755, true);
+if (!is_dir(CUSTOM_TMP_DIR)) @mkdir(CUSTOM_TMP_DIR, 0777, true);
+putenv("TMPDIR=" . CUSTOM_TMP_DIR);
+$_ENV['TMPDIR'] = CUSTOM_TMP_DIR;
 
 /**
  * QTS 官方登录会话继承鉴权
@@ -182,13 +186,30 @@ function save_tasks($tasks) {
  * 获取可执行文件路径
  */
 function get_binary_path($name) {
-    $local_bin = BIN_DIR . '/' . $name;
-    if (file_exists($local_bin) && is_executable($local_bin)) {
-        return $local_bin;
+    $arch = (php_uname('m') === 'aarch64' || php_uname('m') === 'arm64') ? 'arm_64' : 'x86_64';
+    $candidates = [
+        BIN_DIR . '/' . $name,
+        BASE_DIR . '/' . $name,
+        BASE_DIR . '/' . $arch . '/' . $name,
+        '/usr/bin/' . $name,
+        '/usr/local/bin/' . $name
+    ];
+
+    foreach ($candidates as $bin) {
+        if (file_exists($bin)) {
+            @chmod($bin, 0755);
+            if (is_executable($bin)) {
+                return $bin;
+            }
+        }
     }
+
     $which = trim((string)shell_exec("which " . escapeshellarg($name) . " 2>/dev/null"));
     if (!empty($which) && file_exists($which)) {
-        return $which;
+        @chmod($which, 0755);
+        if (is_executable($which)) {
+            return $which;
+        }
     }
     return false;
 }
