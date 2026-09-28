@@ -1182,7 +1182,7 @@ endif;
         <!-- 选项卡导航 -->
         <div class="tab-bar">
             <button class="tab-btn active" onclick="switchTab('tab-parse')">新建下载任务</button>
-            <button class="tab-btn" onclick="switchTab('tab-tasks')">任务队列 (<span id="task-badge">0</span>)</button>
+            <button class="tab-btn" onclick="switchTab('tab-tasks')">任务列表 (<span id="task-badge">0</span>)</button>
             <button class="tab-btn" onclick="switchTab('tab-config')">全局配置</button>
             <button class="tab-btn" onclick="switchTab('tab-logs')">运行日志</button>
         </div>
@@ -1304,11 +1304,11 @@ endif;
             </div>
         </div>
 
-        <!-- 选项卡 2: 任务队列 -->
+        <!-- 选项卡 2: 任务列表 -->
         <div id="tab-tasks" class="tab-content">
             <div class="card">
                 <div class="card-header">
-                    <span class="card-title">任务队列</span>
+                    <span class="card-title">任务列表 (<span id="task-card-count">0</span>)</span>
                     <div style="display: flex; gap: 8px;">
                         <button class="btn btn-outline btn-sm" onclick="fetchTasks()">刷新列表</button>
                         <button class="btn btn-outline btn-sm" onclick="clearCompletedTasks()">清空已完成</button>
@@ -1316,7 +1316,7 @@ endif;
                 </div>
                 <div id="tasks-container">
                     <div style="text-align: center; color: var(--text-muted); padding: 40px 0;">
-                        当前队列中无任何任务
+                        当前任务列表中无任何任务
                     </div>
                 </div>
             </div>
@@ -1528,11 +1528,23 @@ endif;
                         badgeEl.style.display = 'none';
                     }
 
-                    document.getElementById('task-badge').textContent = st.downloading + st.pending;
+                    if (st && st.total !== undefined) {
+                        updateTaskCountBadge(st.total);
+                    } else if (cachedTasks) {
+                        updateTaskCountBadge(cachedTasks.length);
+                    }
                 }
             } catch (e) {
                 console.error('Fetch status error:', e);
             }
+        }
+
+        function updateTaskCountBadge(count) {
+            const num = parseInt(count, 10) || 0;
+            const badge = document.getElementById('task-badge');
+            if (badge) badge.textContent = num;
+            const cardCount = document.getElementById('task-card-count');
+            if (cardCount) cardCount.textContent = num;
         }
 
 
@@ -1839,6 +1851,7 @@ endif;
                 const json = await res.json();
                 if (json.code === 0) {
                     cachedTasks = json.data || [];
+                    updateTaskCountBadge(cachedTasks.length);
                     renderTasks(cachedTasks);
                 }
             } catch (e) {
@@ -1876,7 +1889,7 @@ endif;
         function renderTasks(tasks) {
             const container = document.getElementById('tasks-container');
             if (!tasks || tasks.length === 0) {
-                container.innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 40px 0;">当前队列中无任何任务</div>';
+                container.innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 40px 0;">当前任务列表中无任何任务</div>';
                 return;
             }
 
