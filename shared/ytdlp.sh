@@ -20,11 +20,27 @@ TMP_DIR="$CONF_DIR/tmp"
 PID_FILE="$CONF_DIR/ytdlp_daemon.pid"
 DAEMON_LOG="$LOGS_DIR/daemon.log"
 
-export PATH="$BIN_DIR:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+# 动态探测 QNAP 原生 PHP 解释器路径
+PHP_BIN=""
+for p in /mnt/ext/opt/apache/bin/php /mnt/ext/opt/apache/links/php /usr/bin/php /usr/local/bin/php /opt/bin/php; do
+    if [ -x "$p" ]; then
+        PHP_BIN="$p"
+        break
+    fi
+done
+[ -z "$PHP_BIN" ] && PHP_BIN="$(which php 2>/dev/null || echo 'php')"
+
+export PATH="$BIN_DIR:/mnt/ext/opt/apache/bin:/mnt/ext/opt/apache/links:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
 export TMPDIR="$TMP_DIR"
 
 mkdir -p "$BIN_DIR" "$CONF_DIR" "$LOGS_DIR" "$TMP_DIR" 2>/dev/null
-chmod 777 "$TMP_DIR" 2>/dev/null || true
+chmod 777 "$CONF_DIR" "$LOGS_DIR" "$TMP_DIR" 2>/dev/null || true
+
+# 建立 php 软链接以备全局调用
+if [ -n "$PHP_BIN" ] && [ -x "$PHP_BIN" ]; then
+    ln -sf "$PHP_BIN" "$BIN_DIR/php" 2>/dev/null || true
+    [ ! -f "/usr/bin/php" ] && ln -sf "$PHP_BIN" /usr/bin/php 2>/dev/null || true
+fi
 
 ######################################################################
 # 架构适配与软链接挂载
@@ -53,6 +69,10 @@ setup_arch_binaries() {
             ln -sf "$QPKG_ROOT/$b" "$BIN_DIR/$b" 2>/dev/null || true
         elif [ -f "/usr/bin/$b" ]; then
             ln -sf "/usr/bin/$b" "$BIN_DIR/$b" 2>/dev/null || true
+        elif [ -f "/usr/local/bin/$b" ]; then
+            ln -sf "/usr/local/bin/$b" "$BIN_DIR/$b" 2>/dev/null || true
+        elif [ -f "/opt/bin/$b" ]; then
+            ln -sf "/opt/bin/$b" "$BIN_DIR/$b" 2>/dev/null || true
         fi
     done
 
@@ -101,56 +121,9 @@ sync_system_icons() {
     fi
 }
 
-######################################################################
-# 真实进程 PID 探针与动态自愈
-######################################################################
-get_actual_pids() {
-    local matched_pids=""
-    for proc_dir in /proc/[0-9]*; do
-        [ ! -d "$proc_dir" ] && continue
-        local p="${proc_dir##*/}"
-        local cmdline=$(tr '\0' ' ' < "$proc_dir/cmdline" 2>/dev/null)
-        case "$cmdline" in
-            *"ytdlp.sh daemon"*)
-                matched_pids="$matched_pids $p"
-                ;;
-        esac
-    done
-    echo "$matched_pids" | xargs 2>/dev/null
-}
-
-sync_pid_file() {
-    local active_pids=$(get_actual_pids)
-    if [ -n "$active_pids" ]; then
-        local first_pid=$(echo "$active_pids" | awk '{print $1}')
-        echo "$first_pid" > "$PID_FILE" 2>/dev/null || true
-        chmod 666 "$PID_FILE" 2>/dev/null || true
-        return 0
-    else
-        rm -f "$PID_FILE" 2>/dev/null || true
-        return 1
-    fi
-}
 
 ######################################################################
-# 任务调度守护核心
-######################################################################
-run_daemon() {
-    echo "$$" > "$PID_FILE"
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] yt-dlp scheduler daemon started (PID: $$)" >> "$DAEMON_LOG"
-
-    local scheduler_script="$QPKG_ROOT/web/scheduler.php"
-
-    while true; do
-        if [ -f "$scheduler_script" ]; then
-            /usr/bin/php "$scheduler_script" tick >> "$DAEMON_LOG" 2>&1 || true
-        fi
-        sleep 2
-    done
-}
-
-######################################################################
-# 启停控制接口
+# 启停控制接口（纯按需事件驱动架构，零后台常驻开销）
 ######################################################################
 case "$1" in
     start)
@@ -177,93 +150,42 @@ case "$1" in
         link_webui
         sync_system_icons
 
-        # 检查开机自启解耦
-        AUTOSTART=1
-        if [ -f "$CONF_DIR/config.json" ]; then
-            # 简单 grep 提取 autostart
-            val=$(grep -o '"autostart"[[:space:]]*:[[:space:]]*[0-9]' "$CONF_DIR/config.json" | grep -o '[0-9]')
-            [ -n "$val" ] && AUTOSTART="$val"
+        # 启动时自动触发一次队列补刀，接续未完成的断点任务
+        if [ -f "$QPKG_ROOT/web/scheduler.php" ] && [ -n "$PHP_BIN" ]; then
+            "$PHP_BIN" "$QPKG_ROOT/web/scheduler.php" tick >/dev/null 2>&1 &
         fi
 
-        if [ "$AUTOSTART" -eq 0 ] && [ "$2" != "force" ]; then
-            echo "$QPKG_NAME autostart is disabled in config, Web UI is mounted."
-            exit 0
-        fi
-
-        if sync_pid_file; then
-            echo "$QPKG_NAME scheduler is already running."
-            exit 0
-        fi
-
-        echo "Starting $QPKG_NAME scheduler daemon..."
-        nohup "$0" daemon >/dev/null 2>&1 &
-
-        # 弹性微循环检测启动状态
-        STARTED=0
-        for i in $(seq 1 10); do
-            sleep 0.3
-            if sync_pid_file; then
-                STARTED=1
-                break
-            fi
-        done
-
-        if [ "$STARTED" -eq 1 ]; then
-            echo "$QPKG_NAME scheduler started successfully."
-        else
-            echo "Failed to start $QPKG_NAME scheduler."
-            exit 1
-        fi
+        echo "$QPKG_NAME is ready (on-demand mode)."
         ;;
 
     stop)
-        echo "Stopping $QPKG_NAME..."
-        active_pids=$(get_actual_pids)
-        if [ -n "$active_pids" ]; then
-            echo "Sending SIGTERM to PIDs: $active_pids"
-            for p in $active_pids; do
-                kill -15 "$p" 2>/dev/null || true
-            done
-            sleep 1
-        fi
-
-        # 再次检测残存
-        remaining_pids=$(get_actual_pids)
-        if [ -n "$remaining_pids" ]; then
-            echo "Force killing remaining PIDs: $remaining_pids"
-            for p in $remaining_pids; do
-                kill -9 "$p" 2>/dev/null || true
-            done
-        fi
-
-        # 兜底强杀调度器
-        pkill -9 -f 'ytdlp.sh daemon' 2>/dev/null || true
+        echo "Stopping all active $QPKG_NAME download tasks..."
+        pkill -15 -f 'worker.sh' 2>/dev/null || true
+        pkill -15 -f 'yt-dlp' 2>/dev/null || true
+        pkill -15 -f 'ffmpeg' 2>/dev/null || true
         rm -f "$PID_FILE" 2>/dev/null || true
-        echo "$QPKG_NAME stopped."
+        echo "$QPKG_NAME tasks stopped."
         ;;
 
     restart)
         "$0" stop
         sleep 1
-        "$0" start force
+        "$0" start
         ;;
 
     status)
-        if sync_pid_file; then
-            echo "$QPKG_NAME is running (PID: $(cat "$PID_FILE" 2>/dev/null))."
-            exit 0
-        else
-            echo "$QPKG_NAME is stopped."
-            exit 1
+        echo "$QPKG_NAME is ready (on-demand event-driven mode)."
+        exit 0
+        ;;
+
+    tick|daemon)
+        if [ -f "$QPKG_ROOT/web/scheduler.php" ] && [ -n "$PHP_BIN" ]; then
+            "$PHP_BIN" "$QPKG_ROOT/web/scheduler.php" tick
         fi
         ;;
 
-    daemon)
-        run_daemon
-        ;;
-
     *)
-        echo "Usage: $0 {start|stop|restart|status|daemon}"
+        echo "Usage: $0 {start|stop|restart|status|tick}"
         exit 1
         ;;
 esac

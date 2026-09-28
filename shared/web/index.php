@@ -827,26 +827,12 @@ endif;
             </div>
             <div class="header-right">
                 <div class="status-indicator-box">
-                    <span class="pulse-dot status-dot-stopped" id="daemon-dot"></span>
-                    <span class="status-text" id="daemon-text">调度守护: 检测中</span>
-                    <span class="status-divider"></span>
-                    <div class="autostart-control" title="开机自启解耦管理">
-                        <span class="autostart-label">自启</span>
-                        <label class="switch switch-sm">
-                            <input type="checkbox" id="autostart-toggle" onchange="toggleAutostart(this.checked)">
-                            <span class="slider"></span>
-                        </label>
-                    </div>
+                    <span class="pulse-dot status-dot-running" id="daemon-dot"></span>
+                    <span class="status-text" id="daemon-text">调度引擎: 实时就绪</span>
                 </div>
                 <div class="action-buttons">
-                    <button class="btn btn-outline" id="btn-toggle-service" onclick="toggleService()">
-                        启动守护
-                    </button>
-                    <button class="btn btn-outline" onclick="restartService()">
-                        重启
-                    </button>
                     <button class="btn btn-outline" onclick="fetchStatus()">
-                        刷新
+                        刷新状态
                     </button>
                 </div>
             </div>
@@ -862,8 +848,8 @@ endif;
                     </svg>
                 </div>
                 <div class="stat-info">
-                    <div class="stat-label">守护引擎状态</div>
-                    <div class="stat-value" id="stat-daemon">检测中</div>
+                    <div class="stat-label">任务队列概况</div>
+                    <div class="stat-value" id="stat-tasks-summary">0 下载中 · 0 排队</div>
                 </div>
             </div>
 
@@ -876,8 +862,8 @@ endif;
                     </svg>
                 </div>
                 <div class="stat-info">
-                    <div class="stat-label">进行中任务 / 实时速率</div>
-                    <div class="stat-value" id="stat-speed">0 任务 | --</div>
+                    <div class="stat-label">当前全局下载速率</div>
+                    <div class="stat-value" id="stat-speed">--</div>
                 </div>
             </div>
 
@@ -903,8 +889,8 @@ endif;
                     </svg>
                 </div>
                 <div class="stat-info">
-                    <div class="stat-label">核心组件架构</div>
-                    <div class="stat-value" id="stat-arch">--</div>
+                    <div class="stat-label">核心引擎与规格</div>
+                    <div class="stat-value" id="stat-engine-ver">加载中...</div>
                 </div>
             </div>
         </div>
@@ -915,7 +901,7 @@ endif;
             <button class="tab-btn" onclick="switchTab('tab-tasks')">任务调度队列 (<span id="task-badge">0</span>)</button>
             <button class="tab-btn" onclick="switchTab('tab-config')">存储与全局参数</button>
             <button class="tab-btn" onclick="switchTab('tab-cookies')">账号凭据 (Cookies)</button>
-            <button class="tab-btn" onclick="switchTab('tab-logs')">守护日志监控</button>
+            <button class="tab-btn" onclick="switchTab('tab-logs')">调度与运行日志</button>
         </div>
 
         <!-- 选项卡 1: 新建下载任务 -->
@@ -1104,7 +1090,7 @@ endif;
         <div id="tab-logs" class="tab-content">
             <div class="card">
                 <div class="card-header">
-                    <span class="card-title">系统守护进程调度日志</span>
+                    <span class="card-title">系统任务调度与运行日志</span>
                     <div style="display: flex; gap: 8px;">
                         <button class="btn btn-outline btn-sm" onclick="fetchDaemonLog()">刷新日志</button>
                         <button class="btn btn-outline btn-sm" onclick="clearDaemonLog()">清空日志</button>
@@ -1194,33 +1180,15 @@ endif;
 
                     const dot = document.getElementById('daemon-dot');
                     const text = document.getElementById('daemon-text');
-                    const btnToggle = document.getElementById('btn-toggle-service');
-                    const statDaemon = document.getElementById('stat-daemon');
-
-                    isDaemonRunning = d.daemon_alive;
-                    if (d.daemon_alive) {
-                        dot.className = 'pulse-dot status-dot-running';
-                        text.textContent = '守护进程: 运行中 (' + d.daemon_pid + ')';
-                        statDaemon.textContent = '运行中 (PID ' + d.daemon_pid + ')';
-                        statDaemon.style.color = '#34d399';
-                        btnToggle.textContent = '停止守护';
-                        btnToggle.className = 'btn btn-danger btn-sm';
-                    } else {
-                        dot.className = 'pulse-dot status-dot-stopped';
-                        text.textContent = '守护进程: 已停止';
-                        statDaemon.textContent = '已停止';
-                        statDaemon.style.color = '#f87171';
-                        btnToggle.textContent = '启动守护';
-                        btnToggle.className = 'btn btn-launch btn-sm';
-                    }
-
-                    document.getElementById('autostart-toggle').checked = d.autostart !== 0;
+                    dot.className = 'pulse-dot status-dot-running';
+                    text.textContent = '调度引擎: 实时就绪';
 
                     // 统计指标
                     const st = d.stats;
-                    document.getElementById('stat-speed').textContent = `${st.downloading} 下载中 | ${st.current_speed}`;
-                    document.getElementById('stat-storage').textContent = `${d.free_space_str} 可用`;
-                    document.getElementById('stat-arch').textContent = `${d.system_arch} | yt-dlp ${d.ytdlp_version}`;
+                    document.getElementById('stat-tasks-summary').textContent = `${st.downloading} 下载中 · ${st.pending} 排队`;
+                    document.getElementById('stat-speed').textContent = (st.current_speed && st.current_speed !== '--') ? st.current_speed : '--';
+                    document.getElementById('stat-storage').textContent = `${d.free_space_str} 可用 / ${d.total_space_str}`;
+                    document.getElementById('stat-engine-ver').textContent = `yt-dlp ${d.ytdlp_version} | FFmpeg ${d.ffmpeg_version}`;
                     document.getElementById('task-badge').textContent = st.downloading + st.pending;
                 }
             } catch (e) {
@@ -1228,62 +1196,6 @@ endif;
             }
         }
 
-        async function toggleService() {
-            const cmd = isDaemonRunning ? 'stop' : 'start';
-            showToast(isDaemonRunning ? '正在停止守护进程...' : '正在启动守护进程...');
-            try {
-                const res = await fetch('api.php?action=control_service', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({command: cmd})
-                });
-                const json = await res.json();
-                if (json.code === 0) {
-                    showToast(json.message, 'success');
-                    setTimeout(fetchStatus, 600);
-                } else {
-                    showToast('操作失败: ' + json.message, 'danger');
-                }
-            } catch (e) {
-                showToast('指令发送失败: ' + e.message, 'danger');
-            }
-        }
-
-        async function restartService() {
-            showToast('正在重启守护进程...');
-            try {
-                const res = await fetch('api.php?action=control_service', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({command: 'restart'})
-                });
-                const json = await res.json();
-                if (json.code === 0) {
-                    showToast('服务重启成功', 'success');
-                    setTimeout(fetchStatus, 800);
-                } else {
-                    showToast('重启失败: ' + json.message, 'danger');
-                }
-            } catch (e) {
-                showToast('指令发送失败: ' + e.message, 'danger');
-            }
-        }
-
-        async function toggleAutostart(enable) {
-            try {
-                const res = await fetch('api.php?action=toggle_autostart', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({enable: enable})
-                });
-                const json = await res.json();
-                if (json.code === 0) {
-                    showToast(json.message, 'success');
-                }
-            } catch (e) {
-                showToast('设置失败: ' + e.message, 'danger');
-            }
-        }
 
         async function parseUrl() {
             const urlInput = document.getElementById('input-url');

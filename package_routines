@@ -54,8 +54,8 @@ pkg_post_install()
         if [ -d "$target_path/conf" ] && [ "$(ls -A "$target_path/conf" 2>/dev/null)" ]; then
             rm -rf /tmp/.ytdlp_upgrade_backup 2>/dev/null
         fi
-    fi
-    chmod -Rf 755 "$target_path/conf" 2>/dev/null
+    mkdir -p "$target_path/conf/logs" "$target_path/conf/tmp" "$target_path/bin"
+    chmod -Rf 777 "$target_path/conf" 2>/dev/null || true
 
     # 2. 全量分发高清图标至 QTS 现代桌面与 App Center 图片库
     local icon_src="$target_path/shared/icons"
@@ -71,6 +71,7 @@ pkg_post_install()
 
     # 3. 权限修正与软链接初始化
     chown -R admin:administrators "$target_path" 2>/dev/null
+    chmod -Rf 777 "$target_path/conf" 2>/dev/null || true
     chmod +x "$target_path/x86_64/yt-dlp" "$target_path/arm_64/yt-dlp" "$target_path/ytdlp.sh" "$target_path/shared/ytdlp.sh" 2>/dev/null || true
     chmod +x "$target_path/web/worker.sh" "$target_path/shared/web/worker.sh" 2>/dev/null || true
     [ -f "$target_path/x86_64/ffmpeg" ] && chmod +x "$target_path/x86_64/ffmpeg" "$target_path/x86_64/ffprobe" 2>/dev/null || true

@@ -42,15 +42,10 @@ jobs:
           sudo sed -i 's|^QDK_PATH_P=.*|QDK_PATH_P=/usr/share|' /etc/config/qdk.conf
           sudo sed -i 's|^QDK_PATH=.*|QDK_PATH=/usr/share/QDK|' /etc/config/qdk.conf
 
-      - name: Fetch Upstream Standalone Binaries
+      - name: Build Dual-Spec QPKG Packages (Slim & Full)
         run: |
-          chmod +x scripts/download_binaries.sh
-          ./scripts/download_binaries.sh
-
-      - name: Build QPKG Packages
-        run: |
-          mkdir -p build
-          qbuild --build-dir build
+          chmod +x scripts/build_packages.sh
+          ./scripts/build_packages.sh
 
       - name: Calculate Checksums
         run: |

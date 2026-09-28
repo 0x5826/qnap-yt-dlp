@@ -104,6 +104,8 @@ switch ($action) {
 // -----------------------------------------------------------------------------
 
 function handle_status() {
+    trigger_scheduler_tick();
+
     $ytdlp_bin = get_binary_path('yt-dlp');
     $ffmpeg_bin = get_binary_path('ffmpeg');
     $ffprobe_bin = get_binary_path('ffprobe');
@@ -119,31 +121,21 @@ function handle_status() {
         $ff_out = shell_exec(escapeshellarg($ffmpeg_bin) . " -version 2>/dev/null | head -n 1");
         if ($ff_out) {
             preg_match('/version\s+([^\s]+)/i', $ff_out, $m);
-            $ffmpeg_ver = $m[1] ?? '已安装';
+            $ver_text = $m[1] ?? '已安装';
+            if (strpos($ffmpeg_bin, '/usr/') === 0 || strpos($ffmpeg_bin, '/opt/') === 0) {
+                $ffmpeg_ver = $ver_text . ' (系统原生)';
+            } else {
+                $ffmpeg_ver = $ver_text . ' (内置静态)';
+            }
         }
     }
 
     $build_ver_file = BASE_DIR . '/build_version';
     $qpkg_ver = file_exists($build_ver_file) ? trim(file_get_contents($build_ver_file)) : '1.0.0';
 
-    // 守护进程运行检测：优先使用 Linux 原生跨权限只读 /proc/$pid 探测
-    $daemon_alive = false;
+    // 免守护进程按需调度架构：状态始终为就绪
+    $daemon_alive = true;
     $daemon_pid = 0;
-    if (file_exists(PID_FILE)) {
-        $pid = intval(trim(file_get_contents(PID_FILE)));
-        if ($pid > 0) {
-            if (file_exists("/proc/$pid")) {
-                $daemon_alive = true;
-                $daemon_pid = $pid;
-            } else {
-                $check = shell_exec("kill -0 $pid 2>&1");
-                if (empty($check)) {
-                    $daemon_alive = true;
-                    $daemon_pid = $pid;
-                }
-            }
-        }
-    }
 
     $config = get_app_config();
     $download_dir = $config['download_dir'] ?? '/share/Download/yt-dlp';
@@ -347,7 +339,7 @@ function handle_parse_url($input) {
 }
 
 function handle_get_tasks() {
-    @shell_exec('/usr/bin/php ' . escapeshellarg(__DIR__ . '/scheduler.php') . ' >/dev/null 2>&1 &');
+    trigger_scheduler_tick();
     $tasks = get_tasks();
     $tasks = array_reverse($tasks);
     json_response(['code' => 0, 'data' => $tasks]);
@@ -396,7 +388,7 @@ function handle_add_task($input) {
     $tasks[] = $new_task;
     save_tasks($tasks);
 
-    @shell_exec('/usr/bin/php ' . escapeshellarg(__DIR__ . '/scheduler.php') . ' >/dev/null 2>&1 &');
+    trigger_scheduler_tick();
 
     json_response(['code' => 0, 'message' => '任务已成功加入下载队列', 'data' => ['task_id' => $task_id]]);
 }
@@ -449,7 +441,7 @@ function handle_resume_task($input) {
 
     if ($found) {
         save_tasks($tasks);
-        @shell_exec('/usr/bin/php ' . escapeshellarg(__DIR__ . '/scheduler.php') . ' >/dev/null 2>&1 &');
+        trigger_scheduler_tick();
         json_response(['code' => 0, 'message' => '任务已重新加入排队']);
     } else {
         json_response(['code' => 404, 'message' => '未找到指定任务'], 404);
@@ -475,7 +467,7 @@ function handle_retry_task($input) {
 
     if ($found) {
         save_tasks($tasks);
-        @shell_exec('/usr/bin/php ' . escapeshellarg(__DIR__ . '/scheduler.php') . ' >/dev/null 2>&1 &');
+        trigger_scheduler_tick();
         json_response(['code' => 0, 'message' => '任务已重置并加入队列']);
     } else {
         json_response(['code' => 404, 'message' => '未找到指定任务'], 404);

@@ -128,6 +128,8 @@ if ($active_count < $max_concurrent) {
             $tasks_updated = true;
             $active_count++;
 
+            @file_put_contents(CONF_DIR . '/logs/daemon.log', "[" . date('Y-m-d H:i:s') . "] 调度器自动派发任务 [{$task_id}] (PID: {$worker_pid}, 标题: {$task['title']})\n", FILE_APPEND | LOCK_EX);
+
             if ($active_count >= $max_concurrent) {
                 break;
             }

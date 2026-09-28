@@ -18,9 +18,19 @@ CONF_DIR="$BASE_DIR/conf"
 BIN_DIR="$BASE_DIR/bin"
 TASK_LOG_DIR="$CONF_DIR/logs/tasks/$TASK_ID"
 
-export PATH="$BIN_DIR:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+export PATH="$BIN_DIR:/mnt/ext/opt/apache/bin:/mnt/ext/opt/apache/links:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
 export TMPDIR="$CONF_DIR/tmp"
 mkdir -p "$CONF_DIR/tmp" 2>/dev/null
+
+# 动态寻找 PHP 解释器
+PHP_BIN=""
+for p in "$BIN_DIR/php" /mnt/ext/opt/apache/bin/php /mnt/ext/opt/apache/links/php /usr/bin/php /usr/local/bin/php /opt/bin/php; do
+    if [ -x "$p" ]; then
+        PHP_BIN="$p"
+        break
+    fi
+done
+[ -z "$PHP_BIN" ] && PHP_BIN="$(which php 2>/dev/null || echo 'php')"
 
 mkdir -p "$TASK_LOG_DIR"
 PID_FILE="$TASK_LOG_DIR/worker.pid"
@@ -35,7 +45,7 @@ echo "$$" > "$PID_FILE"
 rm -f "$EXIT_CODE_FILE" "$PROGRESS_FILE"
 
 # 调用 php 解析任务参数生成命令行
-CMD=$(/usr/bin/php "$WEB_DIR/build_command.php" "$TASK_FILE")
+CMD=$("$PHP_BIN" "$WEB_DIR/build_command.php" "$TASK_FILE")
 BUILD_EC=$?
 if [ $BUILD_EC -ne 0 ] || [ -z "$CMD" ]; then
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Failed to build command for task $TASK_ID (exit code: $BUILD_EC)" >> "$OUTPUT_LOG"
@@ -54,5 +64,8 @@ EC=$?
 echo "$EC" > "$EXIT_CODE_FILE"
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] Task finished with exit code $EC." >> "$OUTPUT_LOG"
 rm -f "$PID_FILE"
+
+# 任务结束，自动异步触发后续任务调度
+nohup "$PHP_BIN" "$WEB_DIR/scheduler.php" tick >/dev/null 2>&1 &
 
 exit $EC

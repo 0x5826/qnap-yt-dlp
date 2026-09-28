@@ -192,7 +192,8 @@ function get_binary_path($name) {
         BASE_DIR . '/' . $name,
         BASE_DIR . '/' . $arch . '/' . $name,
         '/usr/bin/' . $name,
-        '/usr/local/bin/' . $name
+        '/usr/local/bin/' . $name,
+        '/opt/bin/' . $name
     ];
 
     foreach ($candidates as $bin) {
@@ -236,4 +237,40 @@ function json_response($data, $code = 200) {
     }
     echo json_encode($data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
     exit;
+}
+
+/**
+ * 动态获取系统 PHP CLI 解释器路径
+ */
+function get_php_binary() {
+    $candidates = [
+        BIN_DIR . '/php',
+        '/mnt/ext/opt/apache/bin/php',
+        '/mnt/ext/opt/apache/links/php',
+        '/usr/bin/php',
+        '/usr/local/bin/php',
+        '/opt/bin/php'
+    ];
+    foreach ($candidates as $p) {
+        if (file_exists($p) && is_executable($p)) {
+            return $p;
+        }
+    }
+    $which = trim((string)shell_exec("which php 2>/dev/null"));
+    if (!empty($which) && file_exists($which) && is_executable($which)) {
+        return $which;
+    }
+    return 'php';
+}
+
+/**
+ * 事件驱动按需调度器唤醒
+ * 异步执行 scheduler.php tick，不阻塞当前请求，实现零常驻后台开箱即用
+ */
+function trigger_scheduler_tick() {
+    $script = __DIR__ . '/scheduler.php';
+    if (file_exists($script)) {
+        $php = get_php_binary();
+        @shell_exec("nohup " . escapeshellarg($php) . " " . escapeshellarg($script) . " tick >/dev/null 2>&1 &");
+    }
 }
