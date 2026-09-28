@@ -698,9 +698,11 @@ endif;
         }
 
         .pill-item.active {
-            background: rgba(225, 29, 72, 0.15);
+            background: rgba(14, 165, 233, 0.18);
             border-color: var(--primary);
-            color: #fff;
+            color: #38bdf8;
+            box-shadow: 0 0 10px rgba(14, 165, 233, 0.28);
+            font-weight: 600;
         }
 
         /* 任务调度队列项 */
@@ -1175,7 +1177,7 @@ endif;
     <div id="modal-log" class="modal">
         <div class="modal-card">
             <div class="modal-header">
-                <span class="card-title" id="log-modal-title">任务控制台输出日志</span>
+                <span class="card-title" id="log-modal-title">任务日志</span>
                 <button class="btn btn-outline btn-sm" onclick="closeLogModal()">关闭</button>
             </div>
             <div class="modal-body">
@@ -1384,9 +1386,28 @@ endif;
             if (!currentParsedMedia) return;
 
             const audioMode = document.getElementById('select-audio').value;
+            const containerVal = (document.getElementById('select-container').value || 'mp4').toUpperCase();
+            const platform = currentParsedMedia.platform || '网络媒体';
+            const rawTitle = currentParsedMedia.title || '媒体任务';
+
+            // 计算清晰度规格与参数说明
+            let specStr = '';
+            if (audioMode) {
+                specStr = `${audioMode.toUpperCase()} · 纯音频`;
+            } else {
+                const activePill = document.querySelector('#res-pill-group .pill-item.active');
+                let pillLabel = activePill ? activePill.textContent.trim() : '最佳画质';
+                pillLabel = pillLabel.replace(/\s*\(自动音画合并\)/g, '').replace(/\s*\[.*?\]/g, '').trim();
+                specStr = `${pillLabel} · ${containerVal}`;
+            }
+
+            const standardTitle = `${platform} - ${rawTitle} - ${specStr}`;
+
             const payload = {
                 url: currentParsedMedia.webpage_url,
-                title: currentParsedMedia.title,
+                title: standardTitle,
+                platform: platform,
+                media_spec: specStr,
                 thumbnail: currentParsedMedia.thumbnail,
                 duration: currentParsedMedia.duration,
                 format_id: selectedFormatId,
@@ -1513,7 +1534,7 @@ endif;
                             ${t.status === 'downloading' ? `<button class="btn btn-outline btn-sm" onclick="pauseTask('${t.id}')">暂停</button>` : ''}
                             ${t.status === 'paused' ? `<button class="btn btn-outline btn-sm" onclick="resumeTask('${t.id}')">继续</button>` : ''}
                             ${t.status === 'failed' ? `<button class="btn btn-outline btn-sm" onclick="retryTask('${t.id}')">重试</button>` : ''}
-                            <button class="btn btn-outline btn-sm" onclick="viewTaskLog('${t.id}')">控制台日志</button>
+                            <button class="btn btn-outline btn-sm" onclick="viewTaskLog('${t.id}')">任务日志</button>
                             <button class="btn btn-danger btn-sm" onclick="deleteTask('${t.id}')">删除任务</button>
                         </div>
                     `;

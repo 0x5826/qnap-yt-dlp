@@ -456,4 +456,36 @@ function inspect_task_log($output_log) {
     return $info;
 }
 
+/**
+ * 智能提取媒体来源平台名称 (YouTube, Bilibili, 抖音, TikTok, Twitter/X 等)
+ */
+function get_media_platform_name($data, $url = '') {
+    $raw = $data['extractor_key'] ?? $data['extractor'] ?? '';
+    $raw_lower = strtolower($raw);
+    if (strpos($raw_lower, 'youtube') !== false) return 'YouTube';
+    if (strpos($raw_lower, 'bilibili') !== false) return 'Bilibili';
+    if (strpos($raw_lower, 'tiktok') !== false) return 'TikTok';
+    if (strpos($raw_lower, 'douyin') !== false) return '抖音';
+    if (strpos($raw_lower, 'twitter') !== false || strpos($raw_lower, 'x') !== false) return 'Twitter/X';
+    if (strpos($raw_lower, 'weibo') !== false) return '微博';
+    if (strpos($raw_lower, 'kuaishou') !== false) return '快手';
+    if (strpos($raw_lower, 'xiaohongshu') !== false) return '小红书';
+    if (strpos($raw_lower, 'instagram') !== false) return 'Instagram';
+    if (strpos($raw_lower, 'facebook') !== false) return 'Facebook';
+    if (strpos($raw_lower, 'twitch') !== false) return 'Twitch';
+    if (strpos($raw_lower, 'vimeo') !== false) return 'Vimeo';
+
+    if (!empty($url)) {
+        $host = parse_url($url, PHP_URL_HOST);
+        if ($host) {
+            $parts = explode('.', $host);
+            if (count($parts) >= 2) {
+                return ucfirst($parts[count($parts) - 2]);
+            }
+        }
+    }
+    return !empty($raw) ? ucfirst($raw) : 'WebMedia';
+}
+
+
 

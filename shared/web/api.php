@@ -340,6 +340,7 @@ function handle_parse_url($input) {
             'thumbnail' => $data['thumbnail'] ?? '',
             'description' => mb_substr($data['description'] ?? '', 0, 160),
             'webpage_url' => $data['webpage_url'] ?? $url,
+            'platform' => get_media_platform_name($data, $url),
             'resolutions' => array_values($resolutions),
             'audio_formats' => $audio_formats,
             'subtitles' => $subtitles
@@ -396,10 +397,22 @@ function handle_add_task($input) {
     $config = get_app_config();
     $task_id = 'task_' . date('ymdHis') . '_' . substr(md5(uniqid('', true)), 0, 4);
 
+    $platform = trim($input['platform'] ?? '');
+    $media_spec = trim($input['media_spec'] ?? '');
+    $title_raw = trim($input['title'] ?? '媒体任务 ' . date('Y-m-d H:i:s'));
+
+    // 格式化标准任务标题：视频平台 - 标题 - 下载的媒体参数配置
+    $standard_title = $title_raw;
+    if (!empty($platform) && !empty($media_spec) && strpos($title_raw, ' - ') === false) {
+        $standard_title = "{$platform} - {$title_raw} - {$media_spec}";
+    }
+
     $new_task = [
         'id' => $task_id,
         'url' => $url,
-        'title' => trim($input['title'] ?? '媒体任务 ' . date('Y-m-d H:i:s')),
+        'title' => $standard_title,
+        'platform' => $platform,
+        'media_spec' => $media_spec,
         'thumbnail' => $input['thumbnail'] ?? '',
         'duration' => intval($input['duration'] ?? 0),
         'format_id' => $input['format_id'] ?? $config['default_video_quality'],
