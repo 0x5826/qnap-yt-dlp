@@ -2043,7 +2043,12 @@ endif;
                         <span>耗时: <strong style="color: #38bdf8;">${escapeHtml(cost)}</strong></span>
                     `;
                 } else if (t.status === 'downloading' || t.status === 'merging') {
-                    const dlSizeStr = (t.downloaded && t.total_size && t.total_size !== '--') ? ` (${escapeHtml(t.downloaded)} / ${escapeHtml(t.total_size)})` : '';
+                    let currentDl = t.downloaded;
+                    let currentTot = t.total_size;
+                    if (t.status === 'merging' && currentTot && currentTot !== '--') {
+                        currentDl = currentTot;
+                    }
+                    const dlSizeStr = (currentDl && currentTot && currentTot !== '--') ? ` (${escapeHtml(currentDl)} / ${escapeHtml(currentTot)})` : '';
                     const currentSpd = (t.status === 'merging') ? '转码合并中' : (t.speed || '--');
                     const currentEta = (t.status === 'merging') ? '处理中' : (t.eta || '--');
                     infoRowHtml = `

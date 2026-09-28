@@ -67,6 +67,10 @@ setup_arch_binaries() {
         elif [ -f "$QPKG_ROOT/$b" ]; then
             chmod +x "$QPKG_ROOT/$b" 2>/dev/null || true
             ln -sf "$QPKG_ROOT/$b" "$BIN_DIR/$b" 2>/dev/null || true
+        elif [ "$b" != "yt-dlp" ] && [ -x "/share/CACHEDEV1_DATA/.qpkg/CayinMediaViewer/CodexPackExt/static/bin/$b" ]; then
+            ln -sf "/share/CACHEDEV1_DATA/.qpkg/CayinMediaViewer/CodexPackExt/static/bin/$b" "$BIN_DIR/$b" 2>/dev/null || true
+        elif [ "$b" != "yt-dlp" ] && [ -x "/share/CACHEDEV1_DATA/.qpkg/CodexPack/opt/ffmpeg/$b" ]; then
+            ln -sf "/share/CACHEDEV1_DATA/.qpkg/CodexPack/opt/ffmpeg/$b" "$BIN_DIR/$b" 2>/dev/null || true
         elif [ -f "/usr/bin/$b" ]; then
             ln -sf "/usr/bin/$b" "$BIN_DIR/$b" 2>/dev/null || true
         elif [ -f "/usr/local/bin/$b" ]; then
@@ -76,9 +80,15 @@ setup_arch_binaries() {
         fi
     done
 
-    # 暴露 CLI 工具至系统路径
+    # 暴露 CLI 工具至系统路径（采用安全 Wrapper 脚本强制将 TMPDIR 重定向至数据盘，杜绝根分区 /tmp 空间耗尽）
     if [ -f "$BIN_DIR/yt-dlp" ]; then
-        ln -sf "$BIN_DIR/yt-dlp" /usr/bin/yt-dlp 2>/dev/null || true
+        cat << EOF > /usr/bin/yt-dlp
+#!/bin/sh
+export TMPDIR="$TMP_DIR"
+[ ! -d "\$TMPDIR" ] && mkdir -p "\$TMPDIR" 2>/dev/null
+exec "$BIN_DIR/yt-dlp" "\$@"
+EOF
+        chmod +x /usr/bin/yt-dlp 2>/dev/null || true
     fi
 }
 

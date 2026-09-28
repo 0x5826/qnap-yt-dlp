@@ -36,6 +36,134 @@ function clean_platform_prefix($title, $platform = '') {
     return preg_replace($plat_pattern, '', $title);
 }
 
+function is_auxiliary_asset_file($path) {
+    if (empty($path) || !is_string($path)) return false;
+    $clean = preg_replace('/(\.part|\.ytdl)$/i', '', trim($path));
+    $ext = strtolower(pathinfo($clean, PATHINFO_EXTENSION));
+    $aux_exts = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'vtt', 'srt', 'ass', 'ssa', 'lrc', 'json', 'xml', 'description', 'mhtml', 'temp'];
+    return in_array($ext, $aux_exts, true);
+}
+
+/**
+ * 实时解析运行中任务的多流标准日志，进行流级别尺寸聚合与真实全局进度计算
+ * 杜绝次级流覆盖主流、封面字幕污染、以及多流下载卡死在 99.5% 的核心痛点
+ */
+function inspect_running_task_streams($output_log, $is_multi_stream = true) {
+    if (!file_exists($output_log)) return null;
+    $lines = file($output_log, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
+    if (empty($lines)) return null;
+
+    // 若日志超过 600 行，保留头部 50 行（提取首个流目标文件名）与尾部 500 行（实时多流进度），大幅降低 I/O 与 CPU 循环
+    if (count($lines) > 600) {
+        $lines = array_merge(array_slice($lines, 0, 50), array_slice($lines, -500));
+    }
+
+    $streams = [];
+    $current_dest = 'main';
+    $is_merging = false;
+    $target_file = '';
+    $latest_media_dest = '';
+    $last_speed = '';
+    $last_eta = '';
+
+    foreach ($lines as $line) {
+        $line = trim($line);
+        if (preg_match('/Merging formats into [\"\x27]([^\x27\"]+)[\"\x27]/i', $line, $m)) {
+            $is_merging = true;
+            $target_file = $m[1];
+        } elseif (preg_match('/\[download\] Destination:\s*(.+)$/i', $line, $m)) {
+            $dest_cand = trim($m[1]);
+            if (!is_auxiliary_asset_file($dest_cand)) {
+                $current_dest = $dest_cand;
+                $latest_media_dest = $dest_cand;
+            } else {
+                $current_dest = 'aux_' . $dest_cand;
+            }
+        } elseif (stripos($line, '[Merger]') !== false) {
+            $is_merging = true;
+        }
+
+        if (strpos($current_dest, 'aux_') !== 0) {
+            $parsed = parse_ytdlp_log_line($line);
+            if ($parsed) {
+                if (!isset($streams[$current_dest])) {
+                    $streams[$current_dest] = ['total_b' => 0, 'dl_b' => 0, 'pct' => 0];
+                }
+                if (!empty($parsed['total_size'])) {
+                    $sz_b = parse_size_str($parsed['total_size']);
+                    if ($sz_b > 0) $streams[$current_dest]['total_b'] = max($streams[$current_dest]['total_b'], $sz_b);
+                }
+                if (!empty($parsed['downloaded'])) {
+                    $dl_b = parse_size_str($parsed['downloaded']);
+                    if ($dl_b > 0) $streams[$current_dest]['dl_b'] = max($streams[$current_dest]['dl_b'], $dl_b);
+                }
+                if (isset($parsed['progress'])) {
+                    $streams[$current_dest]['pct'] = max($streams[$current_dest]['pct'], floatval($parsed['progress']));
+                }
+                if (!empty($parsed['speed'])) $last_speed = $parsed['speed'];
+                if (!empty($parsed['eta'])) $last_eta = $parsed['eta'];
+            }
+        }
+    }
+
+    if (empty($streams)) {
+        return [
+            'is_merging' => $is_merging,
+            'target_file' => $target_file,
+            'dest_file' => $latest_media_dest,
+            'speed' => $last_speed,
+            'eta' => $last_eta,
+            'total_size' => '',
+            'downloaded' => '',
+            'progress' => 0.0
+        ];
+    }
+
+    $total_bytes = 0;
+    $dl_bytes = 0;
+
+    foreach ($streams as $dest => $s) {
+        $st_total = $s['total_b'];
+        $st_dl = $s['dl_b'];
+        if ($s['pct'] >= 99.9 && $st_total > 0) {
+            $st_dl = max($st_dl, $st_total);
+        }
+        $total_bytes += $st_total;
+        $dl_bytes += $st_dl;
+    }
+
+    $calc_pct = 0.0;
+    if ($total_bytes > 0) {
+        $raw_ratio = ($dl_bytes / $total_bytes);
+        if (count($streams) === 1) {
+            if ($is_multi_stream) {
+                // 首个主流下载阶段：为次级流平滑接续预留空间，上限保留在 92.5%，杜绝主流冲顶导致次级流全程被 max() 冻结
+                $calc_pct = min(92.5, round($raw_ratio * 92.5, 1));
+            } else {
+                // 原生单流模式（如纯音频任务或单流视频）：无后续次级流，平滑递增至 99.8%
+                $calc_pct = min(99.8, round($raw_ratio * 100, 1));
+            }
+        } else {
+            // 双流/多流阶段：基于真实汇总大小与已下载量综合计算真实进度
+            $calc_pct = min(99.8, round($raw_ratio * 100, 1));
+        }
+        $calc_pct = max(0.1, $calc_pct);
+    }
+
+    return [
+        'is_merging' => $is_merging,
+        'target_file' => $target_file,
+        'dest_file' => $latest_media_dest,
+        'total_size' => $total_bytes > 0 ? format_bytes($total_bytes) : '',
+        'downloaded' => $dl_bytes > 0 ? format_bytes($dl_bytes) : '',
+        'total_bytes' => $total_bytes,
+        'downloaded_bytes' => $dl_bytes,
+        'progress' => $calc_pct,
+        'speed' => $last_speed,
+        'eta' => $last_eta
+    ];
+}
+
 // 1. 扫描与更新正在运行的任务
 foreach ($tasks as $idx => &$task) {
     $task_id = $task['id'] ?? '';
@@ -54,80 +182,68 @@ foreach ($tasks as $idx => &$task) {
 
         if ($is_alive) {
             $active_count++;
-            // 尝试读取实时进度输出
             $output_log = $task_dir . '/output.log';
             if (file_exists($output_log)) {
-                // 读取最后 25 行提取进度与合并状态
-                $lines = array_slice(file($output_log, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [], -25);
-                $found_progress = ($task['status'] === 'merging');
-                foreach (array_reverse($lines) as $line) {
-                    if (preg_match('/Merging formats into [\"\x27]([^\x27\"]+)[\"\x27]/i', $line, $m)) {
+                $is_multi = empty($task['is_audio_only']) && (empty($task['format_id']) || strpos($task['format_id'], '+') !== false || strpos($task['format_id'], 'bestvideo') !== false);
+                $st_info = inspect_running_task_streams($output_log, $is_multi);
+                if ($st_info) {
+                    if ($st_info['is_merging']) {
                         $task['status'] = 'merging';
                         $task['progress'] = 99.8;
                         $task['speed'] = '音画转码合并中';
                         $task['eta'] = '处理中';
-                        $task['target_file'] = $m[1];
-                        $tasks_updated = true;
-                        $found_progress = true;
-                        if (strpos($task['title'], '批量任务') !== false || strpos($task['title'], '批量下载任务') !== false) {
-                            $fname = basename(trim($m[1]));
-                            $clean_t = preg_replace('/(\.f[0-9]+)?\.[a-zA-Z0-9]+$/', '', $fname);
-                            if (!empty($clean_t)) {
-                                $plat = $task['platform'] ?: '网络媒体';
-                                $clean_no_plat = clean_platform_prefix($clean_t, $plat);
-                                $spec = $task['media_spec'] ?: '';
-                                $task['title'] = !empty($spec) ? "{$plat} - {$clean_no_plat} - {$spec}" : "{$plat} - {$clean_no_plat}";
-                            }
+                        if (!empty($st_info['total_size'])) {
+                            $task['total_size'] = $st_info['total_size'];
+                            $task['downloaded'] = $st_info['total_size'];
                         }
-                        continue;
-                    }
-                    if (!$found_progress) {
-                        $parsed = parse_ytdlp_log_line($line);
-                        if ($parsed) {
-                            if (isset($parsed['progress']) && $parsed['progress'] > 0) {
-                                $prev_pct = floatval($task['progress'] ?? 0);
-                                $curr_pct = floatval($parsed['progress']);
-                                // 规避多流（先视频后音频）导致的进度从 100% 突然闪退回 0%
-                                if ($prev_pct >= 95.0 && $curr_pct < $prev_pct) {
-                                    $mapped = round(95.0 + ($curr_pct * 0.045), 1);
-                                    $task['progress'] = min(99.5, max($prev_pct, $mapped));
-                                } else {
-                                    // 保证单任务进度永远平稳单调递增，绝不倒退闪烁
-                                    $task['progress'] = max($prev_pct, $curr_pct);
+                        if (!empty($st_info['target_file'])) {
+                            $task['target_file'] = $st_info['target_file'];
+                            if (strpos($task['title'], '批量任务') !== false || strpos($task['title'], '批量下载任务') !== false) {
+                                $fname = basename(trim($st_info['target_file']));
+                                $clean_t = preg_replace('/(\.f[0-9]+)?\.[a-zA-Z0-9]+$/', '', $fname);
+                                if (!empty($clean_t)) {
+                                    $plat = $task['platform'] ?: '网络媒体';
+                                    $clean_no_plat = clean_platform_prefix($clean_t, $plat);
+                                    $spec = $task['media_spec'] ?: '';
+                                    $task['title'] = !empty($spec) ? "{$plat} - {$clean_no_plat} - {$spec}" : "{$plat} - {$clean_no_plat}";
                                 }
                             }
-                            if (!empty($parsed['speed'])) {
-                                $task['speed'] = $parsed['speed'];
-                                $task['final_speed'] = $parsed['speed'];
+                        }
+                    } else {
+                        // 正在下载中（单流或多音视频流累计）
+                        if ($st_info['progress'] > 0) {
+                            $prev_pct = floatval($task['progress'] ?? 0);
+                            $task['progress'] = max($prev_pct, $st_info['progress']);
+                        }
+                        if (!empty($st_info['speed'])) {
+                            $task['speed'] = $st_info['speed'];
+                            $task['final_speed'] = $st_info['speed'];
+                        }
+                        if (!empty($st_info['eta'])) {
+                            $task['eta'] = $st_info['eta'];
+                        }
+                        if (!empty($st_info['total_size'])) {
+                            $task['total_size'] = $st_info['total_size'];
+                        }
+                        if (!empty($st_info['downloaded'])) {
+                            $task['downloaded'] = $st_info['downloaded'];
+                        }
+                        if (!empty($st_info['dest_file'])) {
+                            $task['dest_file'] = $st_info['dest_file'];
+                            if (strpos($task['title'], '批量任务') !== false || strpos($task['title'], '批量下载任务') !== false) {
+                                $fname = basename(trim($st_info['dest_file']));
+                                $clean_t = preg_replace('/(\.f[0-9]+)?\.[a-zA-Z0-9]+$/', '', $fname);
+                                if (!empty($clean_t)) {
+                                    $plat = $task['platform'] ?: '网络媒体';
+                                    $clean_no_plat = clean_platform_prefix($clean_t, $plat);
+                                    $spec = $task['media_spec'] ?: '';
+                                    $task['title'] = !empty($spec) ? "{$plat} - {$clean_no_plat} - {$spec}" : "{$plat} - {$clean_no_plat}";
+                                }
                             }
-                            if (!empty($parsed['eta'])) {
-                                $task['eta'] = $parsed['eta'];
-                            }
-                            if (!empty($parsed['downloaded'])) {
-                                $task['downloaded'] = $parsed['downloaded'];
-                            }
-                            if (!empty($parsed['total_size'])) {
-                                $task['total_size'] = $parsed['total_size'];
-                            }
-                            $task['updated_at'] = $now;
-                            $tasks_updated = true;
-                            $found_progress = true;
                         }
                     }
-                    if (preg_match('/\[download\] Destination:\s*(.+)$/i', $line, $m)) {
-                        $task['dest_file'] = trim($m[1]);
-                        if (strpos($task['title'], '批量任务') !== false || strpos($task['title'], '批量下载任务') !== false) {
-                            $fname = basename(trim($m[1]));
-                            $clean_t = preg_replace('/(\.f[0-9]+)?\.[a-zA-Z0-9]+$/', '', $fname);
-                            if (!empty($clean_t)) {
-                                $plat = $task['platform'] ?: '网络媒体';
-                                $clean_no_plat = clean_platform_prefix($clean_t, $plat);
-                                $spec = $task['media_spec'] ?: '';
-                                $task['title'] = !empty($spec) ? "{$plat} - {$clean_no_plat} - {$spec}" : "{$plat} - {$clean_no_plat}";
-                                $tasks_updated = true;
-                            }
-                        }
-                    }
+                    $task['updated_at'] = $now;
+                    $tasks_updated = true;
                 }
             }
         } else {

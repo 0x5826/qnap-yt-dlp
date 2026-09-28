@@ -207,6 +207,9 @@ function save_tasks($tasks) {
 function get_binary_path($name) {
     $arch = (php_uname('m') === 'aarch64' || php_uname('m') === 'arm64') ? 'arm_64' : 'x86_64';
     $candidates = [
+        // 优先探测具备完整编解码器支持的 CodexPackExt / CayinMediaViewer 静态二进制
+        '/share/CACHEDEV1_DATA/.qpkg/CayinMediaViewer/CodexPackExt/static/bin/' . $name,
+        '/share/CACHEDEV1_DATA/.qpkg/CodexPack/opt/ffmpeg/' . $name,
         BIN_DIR . '/' . $name,
         BASE_DIR . '/' . $name,
         BASE_DIR . '/' . $arch . '/' . $name,
@@ -215,7 +218,6 @@ function get_binary_path($name) {
         '/share/CACHEDEV1_DATA/.qpkg/ytdlp/' . $name,
         '/share/CACHEDEV1_DATA/.qpkg/ffmpeg/bin/' . $name,
         '/share/CACHEDEV1_DATA/.qpkg/ffmpeg/' . $name,
-        '/share/CACHEDEV1_DATA/.qpkg/CodexPack/opt/ffmpeg/' . $name,
         '/mnt/ext/opt/medialibrary/bin/' . $name,
         '/mnt/ext/opt/ffmpeg/' . $name,
         '/usr/bin/' . $name,
@@ -239,6 +241,29 @@ function get_binary_path($name) {
             return $which;
         }
     }
+    return false;
+}
+
+/**
+ * 探测当前 FFmpeg 是否支持指定的编码器（如 mov_text）
+ */
+function has_ffmpeg_encoder($encoder_name) {
+    static $encoder_cache = [];
+    if (isset($encoder_cache[$encoder_name])) {
+        return $encoder_cache[$encoder_name];
+    }
+    $ffmpeg = get_binary_path('ffmpeg');
+    if (!$ffmpeg) {
+        $encoder_cache[$encoder_name] = false;
+        return false;
+    }
+    $cmd = safe_escapeshellarg($ffmpeg) . ' -encoders 2>/dev/null';
+    $output = shell_exec($cmd);
+    if (!empty($output) && stripos($output, $encoder_name) !== false) {
+        $encoder_cache[$encoder_name] = true;
+        return true;
+    }
+    $encoder_cache[$encoder_name] = false;
     return false;
 }
 

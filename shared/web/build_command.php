@@ -47,8 +47,8 @@ if (!empty($rate_limit)) {
     $cmd .= ' --limit-rate ' . escapeshellarg($rate_limit);
 }
 
-// Continue partially downloaded files
-$cmd .= ' -c --no-mtime';
+// Continue partially downloaded files & error tolerance
+$cmd .= ' -c --no-mtime -i --compat-options no-abort-on-error';
 
 // Output directory & filename template
 $download_dir = !empty($task['download_dir']) ? $task['download_dir'] : $config['download_dir'];
@@ -89,8 +89,21 @@ if (!empty($task['subtitles']) && $task['subtitles'] !== 'none') {
     if (!empty($task['auto_subs'])) {
         $cmd .= ' --write-auto-subs';
     }
+    // 统一将字幕转为标准 SRT 格式，大幅提升各播放器兼容性
+    $cmd .= ' --convert-subs srt';
+
     if (!empty($task['embed_subtitles'])) {
-        $cmd .= ' --embed-subs';
+        // MP4 容器内嵌字幕需要 FFmpeg 支持 mov_text 编码器
+        // 若当前环境 FFmpeg 缺少 mov_text 编码器，强行注入 --embed-subs 会抛出 "Encoder not found" 致命中断
+        // 此时自动降级保留独立同名外挂字幕 (--write-subs)，阻断任务失败
+        $target_container = (!empty($task['container']) && $task['container'] !== 'default') ? $task['container'] : ($config['default_container'] ?? 'mp4');
+        $can_embed = true;
+        if (strtolower($target_container) === 'mp4' && !has_ffmpeg_encoder('mov_text')) {
+            $can_embed = false;
+        }
+        if ($can_embed) {
+            $cmd .= ' --embed-subs';
+        }
     }
 }
 
