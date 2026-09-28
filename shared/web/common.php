@@ -141,7 +141,7 @@ function get_app_config() {
     $default = [
         'autostart' => 1,
         'download_dir' => '/share/Download',
-        'filename_template' => '%(title)s [%(id)s].%(ext)s',
+        'filename_template' => '%(extractor_key)s-%(title)s [%(id)s].%(ext)s',
         'max_concurrent_tasks' => 2,
         'rate_limit' => '',
         'proxy' => '',
@@ -157,7 +157,11 @@ function get_app_config() {
         $content = @file_get_contents(CONFIG_FILE);
         $data = json_decode($content, true);
         if (is_array($data)) {
-            return array_merge($default, $data);
+            $merged = array_merge($default, $data);
+            if (($merged['filename_template'] ?? '') === '%(title)s [%(id)s].%(ext)s') {
+                $merged['filename_template'] = '%(extractor_key)s-%(title)s [%(id)s].%(ext)s';
+            }
+            return $merged;
         }
     }
     return $default;

@@ -56,9 +56,12 @@ if (!is_dir($download_dir)) {
     @mkdir($download_dir, 0755, true);
 }
 
-$template = !empty($task['filename_template']) ? $task['filename_template'] : $config['filename_template'];
+$template = !empty($task['filename_template']) ? $task['filename_template'] : ($config['filename_template'] ?? '%(extractor_key)s-%(title)s [%(id)s].%(ext)s');
+if ($template === '%(title)s [%(id)s].%(ext)s') {
+    $template = '%(extractor_key)s-%(title)s [%(id)s].%(ext)s';
+}
 $output_path = rtrim($download_dir, '/') . '/' . ltrim($template, '/');
-$cmd .= ' -o ' . escapeshellarg($output_path);
+$cmd .= ' -o ' . safe_escapeshellarg($output_path);
 
 // Audio only mode
 if (!empty($task['is_audio_only'])) {

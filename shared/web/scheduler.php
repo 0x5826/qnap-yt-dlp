@@ -23,6 +23,19 @@ $active_count = 0;
 
 $now = time();
 
+function clean_platform_prefix($title, $platform = '') {
+    if (empty($title)) return '';
+    $patterns = ['youtube', 'bilibili', 'tiktok', 'douyin', 'twitter', 'weibo'];
+    if (!empty($platform) && is_string($platform)) {
+        $trimmed_plat = trim($platform);
+        if ($trimmed_plat !== '') {
+            array_unshift($patterns, preg_quote($trimmed_plat, '/'));
+        }
+    }
+    $plat_pattern = '/^(' . implode('|', $patterns) . ')[\s\-_]+/i';
+    return preg_replace($plat_pattern, '', $title);
+}
+
 // 1. 扫描与更新正在运行的任务
 foreach ($tasks as $idx => &$task) {
     $task_id = $task['id'] ?? '';
@@ -46,13 +59,42 @@ foreach ($tasks as $idx => &$task) {
             if (file_exists($output_log)) {
                 // 读取最后 25 行提取进度与合并状态
                 $lines = array_slice(file($output_log, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [], -25);
-                $found_progress = false;
+                $found_progress = ($task['status'] === 'merging');
                 foreach (array_reverse($lines) as $line) {
+                    if (preg_match('/Merging formats into [\"\x27]([^\x27\"]+)[\"\x27]/i', $line, $m)) {
+                        $task['status'] = 'merging';
+                        $task['progress'] = 99.8;
+                        $task['speed'] = '音画转码合并中';
+                        $task['eta'] = '处理中';
+                        $task['target_file'] = $m[1];
+                        $tasks_updated = true;
+                        $found_progress = true;
+                        if (strpos($task['title'], '批量任务') !== false || strpos($task['title'], '批量下载任务') !== false) {
+                            $fname = basename(trim($m[1]));
+                            $clean_t = preg_replace('/(\.f[0-9]+)?\.[a-zA-Z0-9]+$/', '', $fname);
+                            if (!empty($clean_t)) {
+                                $plat = $task['platform'] ?: '网络媒体';
+                                $clean_no_plat = clean_platform_prefix($clean_t, $plat);
+                                $spec = $task['media_spec'] ?: '';
+                                $task['title'] = !empty($spec) ? "{$plat} - {$clean_no_plat} - {$spec}" : "{$plat} - {$clean_no_plat}";
+                            }
+                        }
+                        continue;
+                    }
                     if (!$found_progress) {
                         $parsed = parse_ytdlp_log_line($line);
                         if ($parsed) {
                             if (isset($parsed['progress']) && $parsed['progress'] > 0) {
-                                $task['progress'] = $parsed['progress'];
+                                $prev_pct = floatval($task['progress'] ?? 0);
+                                $curr_pct = floatval($parsed['progress']);
+                                // 规避多流（先视频后音频）导致的进度从 100% 突然闪退回 0%
+                                if ($prev_pct >= 95.0 && $curr_pct < $prev_pct) {
+                                    $mapped = round(95.0 + ($curr_pct * 0.045), 1);
+                                    $task['progress'] = min(99.5, max($prev_pct, $mapped));
+                                } else {
+                                    // 保证单任务进度永远平稳单调递增，绝不倒退闪烁
+                                    $task['progress'] = max($prev_pct, $curr_pct);
+                                }
                             }
                             if (!empty($parsed['speed'])) {
                                 $task['speed'] = $parsed['speed'];
@@ -72,28 +114,16 @@ foreach ($tasks as $idx => &$task) {
                             $found_progress = true;
                         }
                     }
-                    if (preg_match('/Merging formats into [\"\x27]([^\x27\"]+)[\"\x27]/i', $line, $m)) {
-                        $task['status'] = 'merging';
-                        $task['target_file'] = $m[1];
-                        $tasks_updated = true;
-                        if (strpos($task['title'], '批量任务') !== false || strpos($task['title'], '批量下载任务') !== false) {
-                            $fname = basename(trim($m[1]));
-                            $clean_t = preg_replace('/(\.f[0-9]+)?\.[a-zA-Z0-9]+$/', '', $fname);
-                            if (!empty($clean_t)) {
-                                $plat = $task['platform'] ?: '网络媒体';
-                                $spec = $task['media_spec'] ?: '';
-                                $task['title'] = !empty($spec) ? "{$plat} - {$clean_t} - {$spec}" : "{$plat} - {$clean_t}";
-                            }
-                        }
-                    } elseif (preg_match('/\[download\] Destination:\s*(.+)$/i', $line, $m)) {
+                    if (preg_match('/\[download\] Destination:\s*(.+)$/i', $line, $m)) {
                         $task['dest_file'] = trim($m[1]);
                         if (strpos($task['title'], '批量任务') !== false || strpos($task['title'], '批量下载任务') !== false) {
                             $fname = basename(trim($m[1]));
                             $clean_t = preg_replace('/(\.f[0-9]+)?\.[a-zA-Z0-9]+$/', '', $fname);
                             if (!empty($clean_t)) {
                                 $plat = $task['platform'] ?: '网络媒体';
+                                $clean_no_plat = clean_platform_prefix($clean_t, $plat);
                                 $spec = $task['media_spec'] ?: '';
-                                $task['title'] = !empty($spec) ? "{$plat} - {$clean_t} - {$spec}" : "{$plat} - {$clean_t}";
+                                $task['title'] = !empty($spec) ? "{$plat} - {$clean_no_plat} - {$spec}" : "{$plat} - {$clean_no_plat}";
                                 $tasks_updated = true;
                             }
                         }
@@ -121,8 +151,9 @@ foreach ($tasks as $idx => &$task) {
                     $clean_t = preg_replace('/(\.f[0-9]+)?\.[a-zA-Z0-9]+$/', '', $fname);
                     if (!empty($clean_t)) {
                         $plat = $task['platform'] ?: '网络媒体';
+                        $clean_no_plat = clean_platform_prefix($clean_t, $plat);
                         $spec = $task['media_spec'] ?: '';
-                        $task['title'] = !empty($spec) ? "{$plat} - {$clean_t} - {$spec}" : "{$plat} - {$clean_t}";
+                        $task['title'] = !empty($spec) ? "{$plat} - {$clean_no_plat} - {$spec}" : "{$plat} - {$clean_no_plat}";
                     }
                 }
 

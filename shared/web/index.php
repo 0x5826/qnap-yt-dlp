@@ -724,12 +724,41 @@ endif;
             gap: 16px;
         }
 
+        .task-title-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 4px;
+        }
+
         .task-title {
             font-weight: 600;
             color: #fff;
-            margin-bottom: 4px;
             word-break: break-all;
             font-size: 13px;
+            user-select: text;
+            -webkit-user-select: text;
+        }
+
+        .btn-copy-title {
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            color: var(--text-muted);
+            border-radius: 4px;
+            padding: 2px 4px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            flex-shrink: 0;
+            line-height: 1;
+        }
+
+        .btn-copy-title:hover {
+            color: #fff;
+            background: rgba(59, 130, 246, 0.25);
+            border-color: #3b82f6;
         }
 
         .task-subtitle {
@@ -1338,7 +1367,7 @@ endif;
                     </div>
                     <div class="form-group">
                         <label class="form-label">文件名输出模板</label>
-                        <input type="text" id="cfg-filename-template" class="form-input" placeholder="%(title)s [%(id)s].%(ext)s">
+                        <input type="text" id="cfg-filename-template" class="form-input" placeholder="%(extractor_key)s-%(title)s [%(id)s].%(ext)s">
                     </div>
                 </div>
 
@@ -1852,11 +1881,51 @@ endif;
                 if (json.code === 0) {
                     cachedTasks = json.data || [];
                     updateTaskCountBadge(cachedTasks.length);
+                    // 交互保护：若用户当前正在划选任务列表中的文本，暂缓粗暴清空重绘 DOM，避免打断划选
+                    const sel = window.getSelection();
+                    if (sel && sel.toString().trim().length > 0) {
+                        return;
+                    }
                     renderTasks(cachedTasks);
                 }
             } catch (e) {
                 console.error('Fetch tasks error:', e);
             }
+        }
+
+        function copyTaskTitle(e, title) {
+            if (e) {
+                e.stopPropagation();
+                e.preventDefault();
+            }
+            if (!title) return;
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(title).then(() => {
+                    showToast('标题已复制到剪贴板', 'success');
+                }).catch(() => {
+                    fallbackCopyText(title);
+                });
+            } else {
+                fallbackCopyText(title);
+            }
+        }
+
+        function fallbackCopyText(text) {
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.position = 'fixed';
+            ta.style.left = '-9999px';
+            ta.style.top = '-9999px';
+            document.body.appendChild(ta);
+            ta.focus();
+            ta.select();
+            try {
+                document.execCommand('copy');
+                showToast('标题已复制到剪贴板', 'success');
+            } catch (err) {
+                showToast('复制失败，请手动选择', 'danger');
+            }
+            document.body.removeChild(ta);
         }
 
         function toggleTaskCollapse(taskId) {
@@ -1874,8 +1943,13 @@ endif;
         }
 
         function handleTaskCardClick(e, taskId) {
-            // 如果点击的是按钮、链接或文本选择，不触发折叠切换
-            if (e.target.closest('button') || e.target.closest('a') || e.target.closest('input')) {
+            // 如果用户正在划选文字（鼠标拖拽高亮文字），松开鼠标时不触发折叠
+            const sel = window.getSelection();
+            if (sel && sel.toString().trim().length > 0) {
+                return;
+            }
+            // 如果点击的是按钮、链接、输入框或复制控件，不触发折叠切换
+            if (e.target.closest('button') || e.target.closest('a') || e.target.closest('input') || e.target.closest('.btn-copy-title')) {
                 return;
             }
             toggleTaskCollapse(taskId);
@@ -1951,7 +2025,12 @@ endif;
                     statusLabel = '已暂停';
                 }
 
-                const progress = t.progress || 0;
+                let progress = parseFloat(t.progress) || 0;
+                if (t.status === 'completed') {
+                    progress = 100;
+                } else if (t.status === 'merging') {
+                    progress = Math.max(99.5, progress);
+                }
 
                 let infoRowHtml = '';
                 if (t.status === 'completed') {
@@ -1983,7 +2062,12 @@ endif;
                 item.innerHTML = `
                     <div class="task-top">
                         <div style="flex: 1; min-width: 0;">
-                            <div class="task-title" title="${escapeHtml(t.title)}">${escapeHtml(t.title)}</div>
+                            <div class="task-title-row">
+                                <span class="task-title" title="${escapeHtml(t.title)}">${escapeHtml(t.title)}</span>
+                                <button class="btn-copy-title" title="复制完整标题" data-title="${escapeHtml(t.title)}" onclick="copyTaskTitle(event, this.getAttribute('data-title'))">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                                </button>
+                            </div>
                             <div class="task-subtitle">存储目录: ${escapeHtml(t.download_dir || '--')}</div>
                         </div>
                         <div style="text-align: right; display: flex; align-items: center; gap: 4px; flex-shrink: 0;">
