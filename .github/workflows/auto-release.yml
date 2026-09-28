@@ -1,87 +1,199 @@
-name: Build & Release QPKG
+name: Auto Check & Release Media Downloader QPKG
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
 
 on:
-  push:
-    branches: [ "main", "master" ]
-    tags: [ "v*" ]
+  schedule:
+    # 每周一 UTC 00:00 (北京时间早 08:00) 定期自动巡检上游官方版本
+    - cron: '0 0 * * 1'
   workflow_dispatch:
+    inputs:
+      target_version:
+        description: '指定构建版本（留空则根据 shared/build_version 自动发布，例如 1.0.3）'
+        required: false
+        default: ''
+      force_build:
+        description: '是否强制重新构建'
+        required: false
+        type: boolean
+        default: true
+  push:
+    branches:
+      - main
+    paths:
+      - 'shared/**'
+      - 'icons/**'
+      - 'qpkg.cfg'
+      - 'package_routines'
+      - 'scripts/**'
+      - 'x86_64/**'
+      - 'arm_64/**'
+      - '.github/workflows/auto-release.yml'
 
 permissions:
   contents: write
 
 jobs:
-  build:
+  check-and-build:
+    name: Build and Release QPKG
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
+      - name: Checkout Repository
         uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install Python Dependencies & Generate Icons
+      - name: Determine Build Target & Version
+        id: version_check
+        run: |
+          set -e
+          
+          # 1. 获取当前仓库本地基准版本
+          BASE_VER="$(cat shared/build_version 2>/dev/null || echo '1.0.3')"
+          BASE_VER="${BASE_VER#v}"
+          CORE_VER="${BASE_VER%%-*}"
+          BUILD_DATE=$(date +'%Y%m%d')
+          MMDD=$(date +'%m%d')
+          echo "本地仓库基准版本: $BASE_VER (核心版本: $CORE_VER, 构建日期: ${BUILD_DATE})"
+          
+          # 2. 判断触发源与构建目标版本
+          INPUT_VER="${{ github.event.inputs.target_version }}"
+          FORCE_BUILD="${{ github.event.inputs.force_build }}"
+          EVENT="${{ github.event_name }}"
+          
+          SHOULD_BUILD="false"
+          TARGET_VER="$CORE_VER"
+          TAG_NAME="v$CORE_VER"
+          
+          if [[ "$EVENT" == "push" ]]; then
+            SHOULD_BUILD="true"
+            echo "触发模式: main 分支核心文件变更推送 -> 启动单次全量构建 ($TAG_NAME)"
+          elif [[ "$EVENT" == "workflow_dispatch" ]]; then
+            if [ -n "$INPUT_VER" ]; then
+              TARGET_VER="${INPUT_VER#v}"
+              TAG_NAME="v${TARGET_VER}"
+            fi
+            SHOULD_BUILD="true"
+            echo "触发模式: 手动触发 -> 生成构建版本: $TAG_NAME"
+          elif [[ "$EVENT" == "schedule" ]]; then
+            echo "触发模式: 每周定时巡检上游官方 yt-dlp 版本..."
+            UPSTREAM_TAG=$(curl -sSL "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest" | grep -o '"tag_name": "[^"]*' | cut -d'"' -f4 || true)
+            if [ -n "$UPSTREAM_TAG" ]; then
+              echo "yt-dlp 官方最新版本: $UPSTREAM_TAG"
+              SHOULD_BUILD="true"
+            else
+              echo "未能获取到官方最新 Release Tag，跳过构建。"
+            fi
+          fi
+          
+          # QTS 规范: qpkg.cfg 内的 QPKG_VER 必须 <= 10 字符且推荐纯点分格式 (例如 1.0.3.0928)
+          INTERNAL_VER="${CORE_VER}.${MMDD}"
+          if [ ${#INTERNAL_VER} -gt 10 ]; then
+            INTERNAL_VER="${CORE_VER}"
+          fi
+          
+          echo "target_version=$TARGET_VER" >> $GITHUB_OUTPUT
+          echo "internal_version=$INTERNAL_VER" >> $GITHUB_OUTPUT
+          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+          echo "should_build=$SHOULD_BUILD" >> $GITHUB_OUTPUT
+
+      - name: Setup Python Environment & Generate Icons
+        if: steps.version_check.outputs.should_build == 'true'
         run: |
           python3 -m pip install --upgrade pip pillow
           python3 scripts/generate_icons.py
 
-      - name: Install QDK Dependencies & Compile qpkg_encrypt
+      - name: Setup QDK Build Environment
+        if: steps.version_check.outputs.should_build == 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential p7zip-full bc curl unzip rsync xz-utils
+          
+          # 下载官方 QDK 源码
           wget -q https://github.com/qnap-dev/QDK/archive/refs/tags/v2.3.14.tar.gz
           tar -xzf v2.3.14.tar.gz
+          
+          # 1. 编译关键签名工具 qpkg_encrypt 并部署到系统 PATH
           gcc -O2 -o qpkg_encrypt QDK-2.3.14/src/qpkg_encrypt.c
           sudo cp qpkg_encrypt /usr/local/bin/ && sudo cp qpkg_encrypt /usr/bin/ && sudo cp qpkg_encrypt /bin/
+          
+          # 2. 部署 QDK 核心文件
           sudo mkdir -p /usr/share/QDK /etc/config
           sudo cp -rf QDK-2.3.14/shared/* /usr/share/QDK/
           sudo chmod +x /usr/share/QDK/bin/*
           sudo ln -sf /usr/share/QDK/bin/qbuild /usr/local/bin/qbuild
+          
+          # 3. 配置 QDK 路径
           sudo cp /usr/share/QDK/qdk.conf /etc/config/qdk.conf
           sudo sed -i 's|^QDK_PATH_P=.*|QDK_PATH_P=/usr/share|' /etc/config/qdk.conf
           sudo sed -i 's|^QDK_PATH=.*|QDK_PATH=/usr/share/QDK|' /etc/config/qdk.conf
+          
+          qbuild --version || true
+          which qpkg_encrypt || true
 
       - name: Build Dual-Spec QPKG Packages (Slim & Full)
+        if: steps.version_check.outputs.should_build == 'true'
         run: |
           chmod +x scripts/build_packages.sh
-          ./scripts/build_packages.sh
+          ./scripts/build_packages.sh "${{ steps.version_check.outputs.internal_version }}"
 
       - name: Calculate Checksums
+        if: steps.version_check.outputs.should_build == 'true'
         run: |
           cd build
+          rm -f *.md5
           for f in *.qpkg; do
-            [ -f "$f" ] && md5sum "$f" > "$f.md5"
+            [ -f "$f" ] && md5sum "$f" > "${f}.md5"
           done
+          echo "构建完成制品列表："
+          ls -lh
 
-      - name: Determine Release Tag
-        id: release_meta
+      - name: Clean Existing Release Assets
+        if: steps.version_check.outputs.should_build == 'true'
         run: |
-          BUILD_VER=$(cat shared/build_version 2>/dev/null || echo "1.0.0-$(date +'%Y%m%d')")
-          BUILD_VER=$(echo "$BUILD_VER" | tr -d '[:space:]')
-          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
-            TAG_NAME="${{ github.ref_name }}"
-          else
-            TAG_NAME="v${BUILD_VER}"
-          fi
-          echo "tag_name=${TAG_NAME}" >> $GITHUB_OUTPUT
-          echo "release_title=媒体下载 QNAP 套件 ${TAG_NAME}" >> $GITHUB_OUTPUT
+          TAG_NAME="${{ steps.version_check.outputs.tag_name }}"
+          echo "检查并清理 Release $TAG_NAME 中的旧资产文件，确保全量强制替换..."
+          (gh release view "$TAG_NAME" --json assets --jq '.assets[].name' 2>/dev/null || true) | while read -r asset; do
+            if [ -n "$asset" ]; then
+              echo "删除旧资产: $asset"
+              gh release delete-asset "$TAG_NAME" "$asset" --yes || true
+            fi
+          done
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: qnap-ytdlp-packages
-          path: build/*.qpkg*
-
-      - name: Create or Update Release
+      - name: Publish GitHub Release
+        if: steps.version_check.outputs.should_build == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.release_meta.outputs.tag_name }}
-          name: ${{ steps.release_meta.outputs.release_title }}
+          tag_name: "${{ steps.version_check.outputs.tag_name }}"
+          name: "媒体下载 QPKG ${{ steps.version_check.outputs.tag_name }}"
+          draft: false
+          prerelease: false
+          overwrite_files: true
           files: |
             build/*.qpkg
             build/*.qpkg.md5
-          draft: false
-          prerelease: false
+          body: |
+            ### 威联通 QNAP 媒体下载 (yt-dlp) 原生插件发布 (${{ steps.version_check.outputs.tag_name }})
+            
+            - **发布版本**：`${{ steps.version_check.outputs.tag_name }}`
+            - **内部固件版本**：`${{ steps.version_check.outputs.internal_version }}`
+            - **提交哈希**：`${{ github.sha }}`
+            
+            #### 📦 双规格安装包说明与下载
+            - **Slim 精简版 (~15MB)**：
+              - 适用于常规下载场景，仅打包最新 `yt-dlp` 独立程序，复用 NAS 系统自带的 FFmpeg 进行音画合并与转码。
+            - **Full 全能版 (~93MB)**：
+              - 内置完全静态编译的最新版 FFmpeg 与 FFprobe。彻底摆脱对 QTS 底层环境的依赖，确保最高格式兼容性。
+            
+            #### 🛠️ 快速安装说明
+            1. 根据需求下载对应版本的 `.qpkg` 文件；
+            2. 登录 QTS 桌面 ➔ 打开 **App Center** ➔ 点击右上角手动安装；
+            3. 安装成功后即可通过 QTS 桌面图标访问现代 WebUI 控制台。
+          generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
