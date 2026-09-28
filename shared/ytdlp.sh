@@ -161,16 +161,16 @@ case "$1" in
         fi
 
         # 输出高可读性初始化与组件日志到调度日志
-        local now_str=$(date '+%Y-%m-%d %H:%M:%S')
+        now_str=$(date '+%Y-%m-%d %H:%M:%S')
         echo "[$now_str] [SYSTEM] yt-dlp QPKG 套件启动初始化完成 (架构: $(uname -m), 模式: 按需事件驱动)" >> "$DAEMON_LOG"
         echo "[$now_str] [RUNTIME] PHP 引擎: $PHP_BIN" >> "$DAEMON_LOG"
 
-        local ytdlp_v="未就绪"
-        local ffmpeg_v="未就绪"
+        ytdlp_v="未就绪"
+        ffmpeg_v="未就绪"
         [ -x "$BIN_DIR/yt-dlp" ] && ytdlp_v=$(TMPDIR="$TMP_DIR" "$BIN_DIR/yt-dlp" --version 2>/dev/null || echo "已就绪")
         if [ -x "$BIN_DIR/ffmpeg" ]; then
-            local real_ff=$(readlink -f "$BIN_DIR/ffmpeg" 2>/dev/null || echo "$BIN_DIR/ffmpeg")
-            local ff_ver_num=$("$BIN_DIR/ffmpeg" -version 2>/dev/null | head -n 1 | awk '{print $3}')
+            real_ff=$(readlink -f "$BIN_DIR/ffmpeg" 2>/dev/null || echo "$BIN_DIR/ffmpeg")
+            ff_ver_num=$("$BIN_DIR/ffmpeg" -version 2>/dev/null | head -n 1 | awk '{print $3}')
             if [ -L "$BIN_DIR/ffmpeg" ] || [ "${real_ff#$QPKG_ROOT}" = "$real_ff" ]; then
                 ffmpeg_v="${ff_ver_num} (系统原生: $real_ff)"
             else
@@ -190,7 +190,7 @@ case "$1" in
         pkill -15 -f 'ffmpeg' 2>/dev/null || true
         rm -f "$PID_FILE" 2>/dev/null || true
 
-        local now_str=$(date '+%Y-%m-%d %H:%M:%S')
+        now_str=$(date '+%Y-%m-%d %H:%M:%S')
         echo "[$now_str] [SYSTEM] 收到停机指令，已终止所有活跃下载进程。" >> "$DAEMON_LOG"
         echo "$QPKG_NAME tasks stopped."
         ;;
