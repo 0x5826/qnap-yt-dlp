@@ -48,8 +48,7 @@ if (!empty($rate_limit)) {
 }
 
 // Continue partially downloaded files & error tolerance (-i ignores non-fatal postprocessing errors)
-// --trim-filenames 60 严格限制文件名主干在 60 字符以内，防止 Linux EXT4 单文件名 255 字节（UTF-8 中文每字 3 字节）超限导致 [Errno 36] File name too long
-$cmd .= ' -c --no-mtime -i --trim-filenames 60';
+$cmd .= ' -c --no-mtime -i';
 
 // Output directory & filename template
 $download_dir = !empty($task['download_dir']) ? $task['download_dir'] : $config['download_dir'];
@@ -85,9 +84,14 @@ if (!empty($task['is_audio_only'])) {
 if (!empty($task['subtitles']) && $task['subtitles'] !== 'none') {
     $cmd .= ' --write-subs';
     if ($task['subtitles'] !== 'all') {
-        $cmd .= ' --sub-langs ' . escapeshellarg($task['subtitles']);
+        $sub_langs = $task['subtitles'];
+        if (strpos($sub_langs, '-danmaku') === false) {
+            $sub_langs .= ',-danmaku*';
+        }
+        $cmd .= ' --sub-langs ' . escapeshellarg($sub_langs);
     } else {
-        $cmd .= ' --all-subs';
+        // 排除 Bilibili 等平台的 XML 弹幕，防止 FFmpeg convert-subs 抛出 Invalid data found 报错
+        $cmd .= ' --sub-langs ' . escapeshellarg('all,-danmaku*');
     }
     if (!empty($task['auto_subs'])) {
         $cmd .= ' --write-auto-subs';
