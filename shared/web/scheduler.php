@@ -44,37 +44,55 @@ foreach ($tasks as $idx => &$task) {
             // 尝试读取实时进度输出
             $output_log = $task_dir . '/output.log';
             if (file_exists($output_log)) {
-                // 读取最后 15 行提取进度与合并状态
-                $lines = array_slice(file($output_log, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [], -15);
+                // 读取最后 25 行提取进度与合并状态
+                $lines = array_slice(file($output_log, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [], -25);
+                $found_progress = false;
                 foreach (array_reverse($lines) as $line) {
-                    $parsed = parse_ytdlp_log_line($line);
-                    if ($parsed) {
-                        if (isset($parsed['progress']) && $parsed['progress'] > 0) {
-                            $task['progress'] = $parsed['progress'];
+                    if (!$found_progress) {
+                        $parsed = parse_ytdlp_log_line($line);
+                        if ($parsed) {
+                            if (isset($parsed['progress']) && $parsed['progress'] > 0) {
+                                $task['progress'] = $parsed['progress'];
+                            }
+                            if (!empty($parsed['speed'])) {
+                                $task['speed'] = $parsed['speed'];
+                                $task['final_speed'] = $parsed['speed'];
+                            }
+                            if (!empty($parsed['eta'])) {
+                                $task['eta'] = $parsed['eta'];
+                            }
+                            if (!empty($parsed['downloaded'])) {
+                                $task['downloaded'] = $parsed['downloaded'];
+                            }
+                            if (!empty($parsed['total_size'])) {
+                                $task['total_size'] = $parsed['total_size'];
+                            }
+                            $task['updated_at'] = $now;
+                            $tasks_updated = true;
+                            $found_progress = true;
                         }
-                        if (!empty($parsed['speed'])) {
-                            $task['speed'] = $parsed['speed'];
-                            $task['final_speed'] = $parsed['speed'];
-                        }
-                        if (!empty($parsed['eta'])) {
-                            $task['eta'] = $parsed['eta'];
-                        }
-                        if (!empty($parsed['downloaded'])) {
-                            $task['downloaded'] = $parsed['downloaded'];
-                        }
-                        if (!empty($parsed['total_size'])) {
-                            $task['total_size'] = $parsed['total_size'];
-                        }
-                        $task['updated_at'] = $now;
-                        $tasks_updated = true;
-                        break;
                     }
                     if (preg_match('/Merging formats into [\"\x27]([^\x27\"]+)[\"\x27]/i', $line, $m)) {
                         $task['status'] = 'merging';
                         $task['target_file'] = $m[1];
                         $tasks_updated = true;
+                        if (strpos($task['title'], '批量下载任务 - ') === 0) {
+                            $fname = basename(trim($m[1]));
+                            $clean_t = preg_replace('/(\.f[0-9]+)?\.[a-zA-Z0-9]+$/', '', $fname);
+                            if (!empty($clean_t)) {
+                                $task['title'] = $clean_t;
+                            }
+                        }
                     } elseif (preg_match('/\[download\] Destination:\s*(.+)$/i', $line, $m)) {
                         $task['dest_file'] = trim($m[1]);
+                        if (strpos($task['title'], '批量下载任务 - ') === 0) {
+                            $fname = basename(trim($m[1]));
+                            $clean_t = preg_replace('/(\.f[0-9]+)?\.[a-zA-Z0-9]+$/', '', $fname);
+                            if (!empty($clean_t)) {
+                                $task['title'] = $clean_t;
+                                $tasks_updated = true;
+                            }
+                        }
                     }
                 }
             }
@@ -94,6 +112,13 @@ foreach ($tasks as $idx => &$task) {
                 // 深度扫描输出日志获取最终产物路径与元数据
                 $meta = inspect_task_log($output_log);
                 $target_file = $meta['target_file'] ?: ($task['target_file'] ?? $meta['dest_file'] ?? $task['dest_file'] ?? '');
+                if (!empty($target_file) && strpos($task['title'], '批量下载任务 - ') === 0) {
+                    $fname = basename($target_file);
+                    $clean_t = preg_replace('/(\.f[0-9]+)?\.[a-zA-Z0-9]+$/', '', $fname);
+                    if (!empty($clean_t)) {
+                        $task['title'] = $clean_t;
+                    }
+                }
 
                 // 优先探测最终物理落盘文件大小
                 $final_bytes = 0;

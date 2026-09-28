@@ -49,6 +49,10 @@ switch ($action) {
         handle_add_task($json_input);
         break;
 
+    case 'add_batch_tasks':
+        handle_add_batch_tasks($json_input);
+        break;
+
     case 'pause_task':
         handle_pause_task($json_input);
         break;
@@ -394,8 +398,8 @@ function handle_add_task($input) {
         'container' => $input['container'] ?? $config['default_container'],
         'is_audio_only' => !empty($input['is_audio_only']),
         'audio_format' => $input['audio_format'] ?? 'mp3',
-        'subtitles' => $input['subtitles'] ?? 'none',
-        'embed_subtitles' => !empty($input['embed_subtitles']),
+        'subtitles' => $input['subtitles'] ?? ($config['default_subtitles'] ?? 'all'),
+        'embed_subtitles' => isset($input['embed_subtitles']) ? (bool)$input['embed_subtitles'] : true,
         'embed_thumbnail' => isset($input['embed_thumbnail']) ? (bool)$input['embed_thumbnail'] : (bool)$config['embed_thumbnail'],
         'embed_metadata' => isset($input['embed_metadata']) ? (bool)$input['embed_metadata'] : (bool)$config['embed_metadata'],
         'download_dir' => !empty($input['download_dir']) ? $input['download_dir'] : $config['download_dir'],
@@ -421,6 +425,75 @@ function handle_add_task($input) {
     trigger_scheduler_tick();
 
     json_response(['code' => 0, 'message' => '任务已成功加入下载队列', 'data' => ['task_id' => $task_id]]);
+}
+
+function handle_add_batch_tasks($input) {
+    $urls = $input['urls'] ?? [];
+    if (!is_array($urls) || empty($urls)) {
+        json_response(['code' => 400, 'message' => '未传入有效的视频链接列表'], 400);
+    }
+
+    $config = get_app_config();
+    $tasks = get_tasks();
+    $added_count = 0;
+    $now = time();
+
+    foreach ($urls as $idx => $url) {
+        $url = trim($url);
+        if (empty($url) || !filter_var($url, FILTER_VALIDATE_URL)) continue;
+
+        $task_id = 'task_' . date('ymdHis', $now) . '_' . substr(md5(uniqid('', true) . $idx), 0, 4);
+        $format_id = $input['format_id'] ?? $config['default_video_quality'];
+        $container = $input['container'] ?? $config['default_container'];
+
+        $spec_desc = $input['media_spec'] ?? '最高画质 · MP4';
+        if (!empty($input['is_audio_only'])) {
+            $spec_desc = strtoupper($input['audio_format'] ?? 'MP3') . ' · 纯音频';
+        }
+
+        $new_task = [
+            'id' => $task_id,
+            'url' => $url,
+            'title' => '批量下载任务 - ' . $url,
+            'platform' => '网络媒体',
+            'media_spec' => $spec_desc,
+            'thumbnail' => '',
+            'duration' => 0,
+            'format_id' => $format_id,
+            'container' => $container,
+            'is_audio_only' => !empty($input['is_audio_only']),
+            'audio_format' => $input['audio_format'] ?? 'mp3',
+            'subtitles' => $input['subtitles'] ?? 'all',
+            'embed_subtitles' => isset($input['embed_subtitles']) ? (bool)$input['embed_subtitles'] : true,
+            'embed_thumbnail' => isset($input['embed_thumbnail']) ? (bool)$input['embed_thumbnail'] : (bool)$config['embed_thumbnail'],
+            'embed_metadata' => isset($input['embed_metadata']) ? (bool)$input['embed_metadata'] : (bool)$config['embed_metadata'],
+            'download_dir' => !empty($input['download_dir']) ? $input['download_dir'] : $config['download_dir'],
+            'filename_template' => !empty($input['filename_template']) ? $input['filename_template'] : $config['filename_template'],
+            'rate_limit' => $input['rate_limit'] ?? '',
+            'proxy' => $input['proxy'] ?? '',
+            'status' => 'pending',
+            'progress' => 0.0,
+            'speed' => '--',
+            'eta' => '--',
+            'downloaded' => '0 B',
+            'total_size' => '--',
+            'pid' => 0,
+            'error_message' => '',
+            'created_at' => $now,
+            'updated_at' => $now
+        ];
+
+        $tasks[] = $new_task;
+        $added_count++;
+    }
+
+    if ($added_count > 0) {
+        save_tasks($tasks);
+        trigger_scheduler_tick();
+        json_response(['code' => 0, 'message' => "已成功将 {$added_count} 个任务批量加入下载队列", 'data' => ['added_count' => $added_count]]);
+    } else {
+        json_response(['code' => 400, 'message' => '未能识别到有效的下载链接'], 400);
+    }
 }
 
 function handle_pause_task($input) {

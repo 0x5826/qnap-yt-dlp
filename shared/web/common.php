@@ -134,7 +134,7 @@ function get_app_config() {
         'embed_metadata' => true,
         'default_video_quality' => 'bestvideo+bestaudio/best',
         'default_container' => 'mp4',
-        'default_subtitles' => 'none',
+        'default_subtitles' => 'all',
         'custom_args' => ''
     ];
 

@@ -765,6 +765,124 @@ endif;
             flex-wrap: wrap;
         }
 
+        /* 模式切换器 */
+        .mode-toggle {
+            display: inline-flex;
+            background: rgba(255, 255, 255, 0.06);
+            border-radius: 8px;
+            padding: 3px;
+            border: 1px solid var(--border-color);
+        }
+
+        .mode-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            padding: 4px 12px;
+            font-size: 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .mode-btn.active {
+            background: #2563eb;
+            color: #fff;
+            font-weight: 500;
+        }
+
+        /* 折叠任务卡片 */
+        .task-item {
+            transition: all 0.2s ease;
+        }
+
+        .task-item.collapsed {
+            padding: 10px 14px;
+            gap: 0;
+            cursor: pointer;
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .task-item.collapsed:hover {
+            background: rgba(255, 255, 255, 0.05);
+            border-color: rgba(59, 130, 246, 0.4);
+        }
+
+        .task-item.collapsed .task-progress-bar,
+        .task-item.collapsed .task-info-row,
+        .task-item.collapsed .task-actions,
+        .task-item.collapsed .task-err-msg {
+            display: none !important;
+        }
+
+        .task-item.collapsed .task-title {
+            margin-bottom: 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 58vw;
+        }
+
+        .task-toggle-icon {
+            display: inline-block;
+            transition: transform 0.2s ease;
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-left: 8px;
+        }
+
+        .task-item.collapsed .task-toggle-icon {
+            transform: rotate(-90deg);
+        }
+
+        /* 底部分页器 */
+        .pagination-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 18px;
+            padding-top: 14px;
+            border-top: 1px solid var(--border-color);
+            flex-wrap: wrap;
+            gap: 10px;
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .pagination-buttons {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+        }
+
+        .page-btn {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border-color);
+            color: var(--text-muted);
+            padding: 4px 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.2s;
+        }
+
+        .page-btn:hover:not(:disabled) {
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+        }
+
+        .page-btn.active {
+            background: #2563eb;
+            border-color: #2563eb;
+            color: #fff;
+            font-weight: 600;
+        }
+
+        .page-btn:disabled {
+            opacity: 0.35;
+            cursor: not-allowed;
+        }
+
         /* 终端视窗模态框 */
         .modal {
             position: fixed;
@@ -980,18 +1098,33 @@ endif;
         <!-- 选项卡 1: 新建下载任务 -->
         <div id="tab-parse" class="tab-content active">
             <div class="card">
-                <div class="card-header">
-                    <span class="card-title">解析媒体源链接</span>
+                <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                    <span class="card-title">新建下载任务</span>
+                    <div class="mode-toggle">
+                        <button type="button" class="mode-btn active" id="btn-mode-single" onclick="setInputMode('single')">单链接解析</button>
+                        <button type="button" class="mode-btn" id="btn-mode-batch" onclick="setInputMode('batch')">批量多行模式</button>
+                    </div>
                 </div>
-                <div style="display: flex; gap: 10px; align-items: center;">
-                    <input type="text" id="input-url" class="form-input" style="flex: 1; min-width: 0;" placeholder="输入视频或播放列表链接 (如 YouTube, Bilibili, Twitter, Vimeo 等)...">
+
+                <!-- 单链接输入行 -->
+                <div id="row-single-input" style="display: flex; gap: 10px; align-items: center;">
+                    <input type="text" id="input-url" class="form-input" style="flex: 1; min-width: 0;" placeholder="输入单个视频或播放列表链接 (如 YouTube, Bilibili, Twitter, Vimeo 等)...">
                     <button class="btn btn-primary" id="btn-parse" onclick="parseUrl()">
                         <span id="btn-parse-text">解析媒体</span>
                     </button>
                 </div>
 
-                <!-- 解析结果预览区 -->
-                <div id="parse-result" style="display: none;">
+                <!-- 批量多行输入行 -->
+                <div id="row-batch-input" style="display: none; flex-direction: column; gap: 8px;">
+                    <textarea id="input-batch-urls" class="form-input" style="width: 100%; height: 110px; resize: vertical; font-family: var(--font-mono); font-size: 12px; line-height: 1.5;" placeholder="每行输入一个资源链接，支持从剪贴板直接粘贴多个 URL：&#10;https://www.youtube.com/watch?v=...&#10;https://www.bilibili.com/video/BV..." oninput="updateBatchStats()"></textarea>
+                    <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted);">
+                        <span id="batch-stats-text">已识别: 0 个有效链接</span>
+                        <a href="javascript:void(0)" onclick="clearBatchInput()" style="color: #ef4444; text-decoration: none;">清空输入</a>
+                    </div>
+                </div>
+
+                <!-- 单链接解析元数据预览区 -->
+                <div id="parse-preview-box" style="display: none; margin-top: 18px;">
                     <div class="parse-preview">
                         <img id="meta-thumb" class="preview-thumb" src="" alt="封面">
                         <div class="preview-meta">
@@ -1001,73 +1134,80 @@ endif;
                             <p style="color: #64748b; margin-top: 6px;" id="meta-desc">--</p>
                         </div>
                     </div>
+                </div>
 
-                    <div style="margin-top: 20px;">
+                <!-- 统一下载参数设置面板 -->
+                <div id="download-params-box" style="display: none; margin-top: 20px;">
+                    <div style="font-size: 13px; font-weight: 600; color: #fff; margin-bottom: 12px; display: flex; align-items: center; gap: 6px;">
+                        <span>⚙️ 下载参数设置</span>
+                    </div>
+
+                    <div class="form-row">
                         <div class="form-group">
                             <label class="form-label">视频清晰度规格选择</label>
-                            <div class="pill-group" id="res-pill-group"></div>
+                            <select id="select-quality" class="form-select"></select>
                         </div>
-
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label class="form-label">合并输出容器格式</label>
-                                <select id="select-container" class="form-select">
-                                    <option value="mp4" selected>MP4 (高兼容性)</option>
-                                    <option value="mkv">MKV (完整音画轨与多字幕)</option>
-                                    <option value="webm">WebM (原画流推荐)</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label class="form-label">提取纯音频 (可选)</label>
-                                <select id="select-audio" class="form-select" onchange="toggleAudioMode(this.value)">
-                                    <option value="" selected>不提取 (保留完整视频)</option>
-                                    <option value="mp3">提取并转码为 MP3 (320kbps)</option>
-                                    <option value="m4a">提取为原声 M4A (无损封包)</option>
-                                    <option value="flac">提取为 FLAC (无损压缩)</option>
-                                </select>
-                            </div>
+                        <div class="form-group">
+                            <label class="form-label">合并输出容器格式</label>
+                            <select id="select-container" class="form-select">
+                                <option value="mp4" selected>MP4 (高兼容性推荐)</option>
+                                <option value="mkv">MKV (完整音画轨与多字幕)</option>
+                                <option value="webm">WebM (原画流推荐)</option>
+                            </select>
                         </div>
-
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label class="form-label">字幕提取与集成</label>
-                                <select id="select-subtitles" class="form-select">
-                                    <option value="none" selected>不下载字幕</option>
-                                    <option value="all">下载全部可用字幕</option>
-                                    <option value="zh-Hans,zh,en">优先简中与英文 (zh-Hans, en)</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label class="form-label" style="display: flex; justify-content: space-between; align-items: center;">
-                                    <span>存储目标路径 (QNAP 共享目录)<span id="target-dir-badge" style="color: #38bdf8; font-size: 11px; margin-left: 6px;"></span></span>
-                                    <a href="javascript:void(0)" onclick="setAsDefaultDir()" style="font-size: 11px; color: #38bdf8; text-decoration: none; cursor: pointer;">设为默认目录</a>
-                                </label>
-                                <div style="display: flex; gap: 8px;">
-                                    <input type="text" id="target-dir" class="form-input" style="flex: 1; min-width: 0;" placeholder="/share/Download">
-                                    <button class="btn btn-outline btn-sm" onclick="browseShares('task')">选择共享卷</button>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="form-row" style="margin-bottom: 20px;">
-                            <label class="checkbox-label">
-                                <input type="checkbox" id="check-embed-subs" checked>
-                                <span>内嵌字幕到视频文件 (--embed-subs)</span>
-                            </label>
-                            <label class="checkbox-label">
-                                <input type="checkbox" id="check-embed-thumb" checked>
-                                <span>内嵌视频封面图像 (--embed-thumbnail)</span>
-                            </label>
-                            <label class="checkbox-label">
-                                <input type="checkbox" id="check-embed-meta" checked>
-                                <span>内嵌元数据与章节标签 (--embed-metadata)</span>
-                            </label>
-                        </div>
-
-                        <button class="btn btn-primary" style="width: 100%; padding: 12px;" onclick="submitDownloadTask()">
-                            立即加入下载队列
-                        </button>
                     </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">提取纯音频 (可选)</label>
+                            <select id="select-audio" class="form-select" onchange="toggleAudioMode(this.value)">
+                                <option value="" selected>不提取 (保留完整视频)</option>
+                                <option value="mp3">提取并转码为 MP3 (320kbps)</option>
+                                <option value="m4a">提取为原声 M4A (无损封包)</option>
+                                <option value="flac">提取为 FLAC (无损压缩)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">字幕提取与集成</label>
+                            <select id="select-subtitles" class="form-select">
+                                <option value="all" selected>下载全部可用字幕 (默认推荐)</option>
+                                <option value="zh-Hans,zh,en">优先简中与英文 (zh-Hans, en)</option>
+                                <option value="none">不下载字幕</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group" style="width: 100%;">
+                            <label class="form-label" style="display: flex; justify-content: space-between; align-items: center;">
+                                <span>存储目标路径 (QNAP 共享目录)<span id="target-dir-badge" style="color: #38bdf8; font-size: 11px; margin-left: 6px;"></span></span>
+                                <a href="javascript:void(0)" onclick="setAsDefaultDir()" style="font-size: 11px; color: #38bdf8; text-decoration: none; cursor: pointer;">设为默认目录</a>
+                            </label>
+                            <div style="display: flex; gap: 8px;">
+                                <input type="text" id="target-dir" class="form-input" style="flex: 1; min-width: 0;" placeholder="/share/Download">
+                                <button class="btn btn-outline btn-sm" onclick="browseShares('task')">选择共享卷</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-row" style="margin-bottom: 20px;">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="check-embed-subs" checked>
+                            <span>内嵌字幕到视频文件 (--embed-subs)</span>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="check-embed-thumb" checked>
+                            <span>内嵌视频封面图像 (--embed-thumbnail)</span>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="check-embed-meta" checked>
+                            <span>内嵌元数据与章节标签 (--embed-metadata)</span>
+                        </label>
+                    </div>
+
+                    <button class="btn btn-primary" id="btn-submit-task" style="width: 100%; padding: 12px;" onclick="submitDownloadTask()">
+                        立即加入下载队列
+                    </button>
                 </div>
             </div>
         </div>
@@ -1288,6 +1428,86 @@ endif;
         }
 
 
+        let currentInputMode = 'single';
+        let taskCurrentPage = 1;
+        const taskPageSize = 10;
+        const expandedTaskIds = new Set();
+        let cachedTasks = [];
+
+        function setInputMode(mode) {
+            currentInputMode = mode;
+            const btnSingle = document.getElementById('btn-mode-single');
+            const btnBatch = document.getElementById('btn-mode-batch');
+            const rowSingle = document.getElementById('row-single-input');
+            const rowBatch = document.getElementById('row-batch-input');
+            const previewBox = document.getElementById('parse-preview-box');
+            const paramsBox = document.getElementById('download-params-box');
+            const submitBtn = document.getElementById('btn-submit-task');
+            const qualitySelect = document.getElementById('select-quality');
+
+            if (mode === 'batch') {
+                btnSingle.classList.remove('active');
+                btnBatch.classList.add('active');
+                rowSingle.style.display = 'none';
+                rowBatch.style.display = 'flex';
+                previewBox.style.display = 'none';
+                paramsBox.style.display = 'block';
+
+                // 批量模式下填充通用画质策略
+                qualitySelect.innerHTML = `
+                    <option value="bestvideo+bestaudio/best" selected>最高画质 (自适应最佳音视频自动合并 · 推荐)</option>
+                    <option value="bestvideo[height<=2160]+bestaudio/best[height<=2160]">4K 超高清 (2160P 及以下)</option>
+                    <option value="bestvideo[height<=1080]+bestaudio/best[height<=1080]">1080P 全高清 (推荐 · 兼顾画质与体积)</option>
+                    <option value="bestvideo[height<=720]+bestaudio/best[height<=720]">720P 高清 (轻量省流)</option>
+                    <option value="bestvideo[height<=480]+bestaudio/best[height<=480]">480P 标清</option>
+                `;
+
+                updateBatchStats();
+            } else {
+                btnBatch.classList.remove('active');
+                btnSingle.classList.add('active');
+                rowBatch.style.display = 'none';
+                rowSingle.style.display = 'flex';
+
+                if (currentParsedMedia) {
+                    previewBox.style.display = 'block';
+                    paramsBox.style.display = 'block';
+                    submitBtn.innerHTML = '立即加入下载队列';
+                    renderParseResult(currentParsedMedia);
+                } else {
+                    previewBox.style.display = 'none';
+                    paramsBox.style.display = 'none';
+                }
+            }
+        }
+
+        function getBatchUrls() {
+            const textarea = document.getElementById('input-batch-urls');
+            if (!textarea) return [];
+            return textarea.value.split('\n')
+                .map(u => u.trim())
+                .filter(u => u.length > 8 && /^https?:\/\//i.test(u));
+        }
+
+        function updateBatchStats() {
+            if (currentInputMode !== 'batch') return;
+            const urls = getBatchUrls();
+            const statsText = document.getElementById('batch-stats-text');
+            const submitBtn = document.getElementById('btn-submit-task');
+            if (statsText) {
+                statsText.textContent = `已识别: ${urls.length} 个有效链接`;
+            }
+            if (submitBtn) {
+                submitBtn.innerHTML = `🚀 批量加入下载队列 (已识别 ${urls.length} 个链接)`;
+            }
+        }
+
+        function clearBatchInput() {
+            const textarea = document.getElementById('input-batch-urls');
+            if (textarea) textarea.value = '';
+            updateBatchStats();
+        }
+
         async function parseUrl() {
             const urlInput = document.getElementById('input-url');
             const url = urlInput.value.trim();
@@ -1324,34 +1544,31 @@ endif;
         }
 
         function renderParseResult(data) {
-            document.getElementById('parse-result').style.display = 'block';
+            document.getElementById('parse-preview-box').style.display = 'block';
+            document.getElementById('download-params-box').style.display = 'block';
             document.getElementById('meta-thumb').src = data.thumbnail || 'static/favicon.png';
             document.getElementById('meta-title').textContent = data.title;
             document.getElementById('meta-uploader').textContent = data.uploader;
             document.getElementById('meta-duration').textContent = formatDuration(data.duration);
             document.getElementById('meta-desc').textContent = data.description || '暂无说明';
 
-            const pillContainer = document.getElementById('res-pill-group');
-            pillContainer.innerHTML = '';
+            const qualitySelect = document.getElementById('select-quality');
+            qualitySelect.innerHTML = '';
 
-            const bestPill = document.createElement('div');
-            bestPill.className = 'pill-item active';
-            bestPill.textContent = '最佳画质 (自动音画合并)';
-            bestPill.onclick = () => selectFormat('bestvideo+bestaudio/best', bestPill);
-            pillContainer.appendChild(bestPill);
-            selectedFormatId = 'bestvideo+bestaudio/best';
+            const bestOpt = document.createElement('option');
+            bestOpt.value = 'bestvideo+bestaudio/best';
+            bestOpt.textContent = '最佳画质 (自动音画合并 · 推荐)';
+            qualitySelect.appendChild(bestOpt);
 
             (data.resolutions || []).forEach(r => {
-                const pill = document.createElement('div');
-                pill.className = 'pill-item';
-                pill.textContent = `${r.label} [${r.filesize_str}]`;
-                const fmt = `bestvideo[height<=${r.height}]+bestaudio/best[height<=${r.height}]`;
-                pill.onclick = () => selectFormat(fmt, pill);
-                pillContainer.appendChild(pill);
+                const opt = document.createElement('option');
+                opt.value = `bestvideo[height<=${r.height}]+bestaudio/best[height<=${r.height}]`;
+                opt.textContent = `${r.label} [${r.filesize_str}]`;
+                qualitySelect.appendChild(opt);
             });
 
             const subSelect = document.getElementById('select-subtitles');
-            subSelect.innerHTML = '<option value="none">不下载字幕</option><option value="all">下载全部可用字幕</option><option value="zh-Hans,zh,en">优先简中与英文 (zh-Hans, en)</option>';
+            subSelect.innerHTML = '<option value="all" selected>下载全部可用字幕 (默认推荐)</option><option value="zh-Hans,zh,en">优先简中与英文 (zh-Hans, en)</option><option value="none">不下载字幕</option>';
             if (data.subtitles && data.subtitles.length > 0) {
                 data.subtitles.forEach(s => {
                     const opt = document.createElement('option');
@@ -1360,93 +1577,149 @@ endif;
                     subSelect.appendChild(opt);
                 });
             }
-        }
 
-        function selectFormat(fmt, el) {
-            document.querySelectorAll('#res-pill-group .pill-item').forEach(p => p.classList.remove('active'));
-            el.classList.add('active');
-            selectedFormatId = fmt;
+            const submitBtn = document.getElementById('btn-submit-task');
+            if (submitBtn) {
+                submitBtn.innerHTML = '立即加入下载队列';
+            }
         }
 
         function toggleAudioMode(val) {
             const containerSelect = document.getElementById('select-container');
-            const resGroup = document.getElementById('res-pill-group');
+            const qualitySelect = document.getElementById('select-quality');
             if (val) {
                 containerSelect.disabled = true;
-                resGroup.style.opacity = '0.3';
-                resGroup.style.pointerEvents = 'none';
+                qualitySelect.disabled = true;
+                qualitySelect.style.opacity = '0.5';
             } else {
                 containerSelect.disabled = false;
-                resGroup.style.opacity = '1';
-                resGroup.style.pointerEvents = 'auto';
+                qualitySelect.disabled = false;
+                qualitySelect.style.opacity = '1';
             }
         }
 
         async function submitDownloadTask() {
-            if (!currentParsedMedia) return;
-
-            const submitBtn = document.querySelector('button[onclick="submitDownloadTask()"]');
-            if (submitBtn) {
-                if (submitBtn.disabled) return;
-                submitBtn.disabled = true;
-                submitBtn.innerHTML = '正在加入队列...';
-            }
+            const submitBtn = document.getElementById('btn-submit-task');
+            if (submitBtn && submitBtn.disabled) return;
 
             const audioMode = document.getElementById('select-audio').value;
             const containerVal = (document.getElementById('select-container').value || 'mp4').toUpperCase();
-            const platform = currentParsedMedia.platform || '网络媒体';
-            const rawTitle = currentParsedMedia.title || '媒体任务';
+            const formatVal = document.getElementById('select-quality').value || 'bestvideo+bestaudio/best';
+            const qualityText = document.getElementById('select-quality').selectedOptions[0]?.textContent || '最佳画质';
+            const cleanQualityText = qualityText.replace(/\s*\(自动音画合并.*?\)/g, '').replace(/\s*\[.*?\]/g, '').trim();
+            const subtitlesVal = document.getElementById('select-subtitles').value || 'all';
+            const embedSubs = document.getElementById('check-embed-subs').checked;
+            const embedThumb = document.getElementById('check-embed-thumb').checked;
+            const embedMeta = document.getElementById('check-embed-meta').checked;
+            const downloadDir = document.getElementById('target-dir').value;
 
-            // 计算清晰度规格与参数说明
-            let specStr = '';
-            if (audioMode) {
-                specStr = `${audioMode.toUpperCase()} · 纯音频`;
-            } else {
-                const activePill = document.querySelector('#res-pill-group .pill-item.active');
-                let pillLabel = activePill ? activePill.textContent.trim() : '最佳画质';
-                pillLabel = pillLabel.replace(/\s*\(自动音画合并\)/g, '').replace(/\s*\[.*?\]/g, '').trim();
-                specStr = `${pillLabel} · ${containerVal}`;
-            }
+            let specStr = audioMode ? `${audioMode.toUpperCase()} · 纯音频` : `${cleanQualityText} · ${containerVal}`;
 
-            const standardTitle = `${platform} - ${rawTitle} - ${specStr}`;
-
-            const payload = {
-                url: currentParsedMedia.webpage_url,
-                title: standardTitle,
-                platform: platform,
-                media_spec: specStr,
-                thumbnail: currentParsedMedia.thumbnail,
-                duration: currentParsedMedia.duration,
-                format_id: selectedFormatId,
-                container: document.getElementById('select-container').value,
-                is_audio_only: !!audioMode,
-                audio_format: audioMode,
-                subtitles: document.getElementById('select-subtitles').value,
-                embed_subtitles: document.getElementById('check-embed-subs').checked,
-                embed_thumbnail: document.getElementById('check-embed-thumb').checked,
-                embed_metadata: document.getElementById('check-embed-meta').checked,
-                download_dir: document.getElementById('target-dir').value
-            };
-
-            try {
-                const res = await fetch('api.php?action=add_task', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify(payload)
-                });
-                const json = await res.json();
-                if (json.code === 0) {
-                    showToast('任务已成功加入下载队列', 'success');
-                    switchTab('tab-tasks');
-                } else {
-                    showToast('添加失败: ' + json.message, 'danger');
+            if (currentInputMode === 'batch') {
+                const urls = getBatchUrls();
+                if (urls.length === 0) {
+                    showToast('请在文本框中输入至少一个有效的媒体链接', 'danger');
+                    return;
                 }
-            } catch (e) {
-                showToast('提交失败: ' + e.message, 'danger');
-            } finally {
+
                 if (submitBtn) {
-                    submitBtn.disabled = false;
-                    submitBtn.innerHTML = '立即加入下载队列';
+                    submitBtn.disabled = true;
+                    submitBtn.innerHTML = '正在批量加入队列...';
+                }
+
+                const batchPayload = {
+                    urls: urls,
+                    media_spec: specStr,
+                    format_id: formatVal,
+                    container: document.getElementById('select-container').value,
+                    is_audio_only: !!audioMode,
+                    audio_format: audioMode,
+                    subtitles: subtitlesVal,
+                    embed_subtitles: embedSubs,
+                    embed_thumbnail: embedThumb,
+                    embed_metadata: embedMeta,
+                    download_dir: downloadDir
+                };
+
+                try {
+                    const res = await fetch('api.php?action=add_batch_tasks', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(batchPayload)
+                    });
+                    const json = await res.json();
+                    if (json.code === 0) {
+                        showToast(json.message || `成功添加 ${urls.length} 个任务`, 'success');
+                        clearBatchInput();
+                        switchTab('tab-tasks');
+                    } else {
+                        showToast('批量添加失败: ' + json.message, 'danger');
+                    }
+                } catch (e) {
+                    showToast('提交失败: ' + e.message, 'danger');
+                } finally {
+                    if (submitBtn) {
+                        submitBtn.disabled = false;
+                        updateBatchStats();
+                    }
+                }
+            } else {
+                if (!currentParsedMedia) {
+                    showToast('请先解析媒体链接', 'danger');
+                    return;
+                }
+
+                if (submitBtn) {
+                    submitBtn.disabled = true;
+                    submitBtn.innerHTML = '正在加入队列...';
+                }
+
+                const platform = currentParsedMedia.platform || '网络媒体';
+                const rawTitle = currentParsedMedia.title || '媒体任务';
+                const standardTitle = `${platform} - ${rawTitle} - ${specStr}`;
+
+                const payload = {
+                    url: currentParsedMedia.webpage_url,
+                    title: standardTitle,
+                    platform: platform,
+                    media_spec: specStr,
+                    thumbnail: currentParsedMedia.thumbnail,
+                    duration: currentParsedMedia.duration,
+                    format_id: formatVal,
+                    container: document.getElementById('select-container').value,
+                    is_audio_only: !!audioMode,
+                    audio_format: audioMode,
+                    subtitles: subtitlesVal,
+                    embed_subtitles: embedSubs,
+                    embed_thumbnail: embedThumb,
+                    embed_metadata: embedMeta,
+                    download_dir: downloadDir
+                };
+
+                try {
+                    const res = await fetch('api.php?action=add_task', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(payload)
+                    });
+                    const json = await res.json();
+                    if (json.code === 0) {
+                        showToast('任务已成功加入下载队列', 'success');
+                        document.getElementById('input-url').value = '';
+                        currentParsedMedia = null;
+                        document.getElementById('parse-preview-box').style.display = 'none';
+                        document.getElementById('download-params-box').style.display = 'none';
+                        switchTab('tab-tasks');
+                    } else {
+                        showToast('添加失败: ' + json.message, 'danger');
+                    }
+                } catch (e) {
+                    showToast('提交失败: ' + e.message, 'danger');
+                } finally {
+                    if (submitBtn) {
+                        submitBtn.disabled = false;
+                        submitBtn.innerHTML = '立即加入下载队列';
+                    }
                 }
             }
         }
@@ -1456,11 +1729,34 @@ endif;
                 const res = await fetch('api.php?action=get_tasks');
                 const json = await res.json();
                 if (json.code === 0) {
-                    renderTasks(json.data);
+                    cachedTasks = json.data || [];
+                    renderTasks(cachedTasks);
                 }
             } catch (e) {
                 console.error('Fetch tasks error:', e);
             }
+        }
+
+        function toggleTaskCollapse(taskId) {
+            if (expandedTaskIds.has(taskId)) {
+                expandedTaskIds.delete(taskId);
+            } else {
+                expandedTaskIds.add(taskId);
+            }
+            renderTasks(cachedTasks);
+        }
+
+        function handleTaskCardClick(e, taskId) {
+            // 如果点击的是按钮、链接或文本选择，不触发折叠切换
+            if (e.target.closest('button') || e.target.closest('a') || e.target.closest('input')) {
+                return;
+            }
+            toggleTaskCollapse(taskId);
+        }
+
+        function goToTaskPage(pageNum) {
+            taskCurrentPage = pageNum;
+            renderTasks(cachedTasks);
         }
 
         function renderTasks(tasks) {
@@ -1470,10 +1766,31 @@ endif;
                 return;
             }
 
+            const totalTasks = tasks.length;
+            const totalPages = Math.max(1, Math.ceil(totalTasks / taskPageSize));
+            if (taskCurrentPage > totalPages) {
+                taskCurrentPage = totalPages;
+            }
+
+            const startIndex = (taskCurrentPage - 1) * taskPageSize;
+            const pageTasks = tasks.slice(startIndex, startIndex + taskPageSize);
+
             container.innerHTML = '';
-            tasks.forEach(t => {
+            pageTasks.forEach((t, pageIdx) => {
+                const globalIdx = startIndex + pageIdx;
                 const item = document.createElement('div');
                 item.className = 'task-item';
+
+                // 折叠逻辑：当任务总数 > 1 时，除全局第 1 个任务（最新任务）或被用户手动展开的任务外，默认紧凑折叠
+                const isFirstTask = (globalIdx === 0);
+                const isExplicitlyExpanded = expandedTaskIds.has(t.id);
+                const shouldCollapse = (totalTasks > 1) && !isFirstTask && !isExplicitlyExpanded;
+
+                if (shouldCollapse) {
+                    item.classList.add('collapsed');
+                }
+
+                item.onclick = (e) => handleTaskCardClick(e, t.id);
 
                 let statusColor = '#94a3b8';
                 let statusLabel = '排队中';
@@ -1496,62 +1813,91 @@ endif;
 
                 const progress = t.progress || 0;
 
-                    let infoRowHtml = '';
-                    if (t.status === 'completed') {
-                        const totalSz = (t.total_size && t.total_size !== '--') ? t.total_size : (t.downloaded || '完整');
-                        const spd = (t.final_speed && t.final_speed !== '--') ? t.final_speed : (t.speed || '--');
-                        const cost = t.time_cost_str || '--';
-                        infoRowHtml = `
-                            <span>大小: <strong style="color: var(--text-main);">${escapeHtml(totalSz)}</strong></span>
-                            <span>平均速率: <strong style="color: #10b981;">${escapeHtml(spd)}</strong></span>
-                            <span>耗时: <strong style="color: #38bdf8;">${escapeHtml(cost)}</strong></span>
-                        `;
-                    } else if (t.status === 'downloading' || t.status === 'merging') {
-                        const dlSizeStr = (t.downloaded && t.total_size && t.total_size !== '--') ? ` (${escapeHtml(t.downloaded)} / ${escapeHtml(t.total_size)})` : '';
-                        const currentSpd = (t.status === 'merging') ? '转码合并中' : (t.speed || '--');
-                        const currentEta = (t.status === 'merging') ? '处理中' : (t.eta || '--');
-                        infoRowHtml = `
-                            <span>进度: <strong style="color: var(--text-main);">${progress.toFixed(1)}%${dlSizeStr}</strong></span>
-                            <span>速率: <strong style="color: #10b981;">${escapeHtml(currentSpd)}</strong></span>
-                            <span>剩余: <strong style="color: #38bdf8;">${escapeHtml(currentEta)}</strong></span>
-                        `;
-                    } else {
-                        infoRowHtml = `
-                            <span>进度: ${progress.toFixed(1)}%</span>
-                            <span>状态: ${statusLabel}</span>
-                            <span>格式: ${escapeHtml(t.container || 'mp4').toUpperCase()}</span>
-                        `;
-                    }
-
-                    item.innerHTML = `
-                        <div class="task-top">
-                            <div>
-                                <div class="task-title">${escapeHtml(t.title)}</div>
-                                <div class="task-subtitle">存储目录: ${escapeHtml(t.download_dir || '--')}</div>
-                            </div>
-                            <div style="text-align: right;">
-                                <span style="display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; background: rgba(255,255,255,0.06); color: ${statusColor};">
-                                    ${statusLabel}
-                                </span>
-                            </div>
-                        </div>
-                        <div class="task-progress-bar">
-                            <div class="task-progress-inner" style="width: ${progress}%;"></div>
-                        </div>
-                        <div class="task-info-row">
-                            ${infoRowHtml}
-                        </div>
-                        ${t.error_message ? `<div style="font-size: 11px; color: #ef4444; background: rgba(239,68,68,0.1); padding: 6px 10px; border-radius: 4px;">${escapeHtml(t.error_message)}</div>` : ''}
-                        <div class="task-actions">
-                            ${t.status === 'downloading' ? `<button class="btn btn-outline btn-sm" onclick="pauseTask('${t.id}')">暂停</button>` : ''}
-                            ${t.status === 'paused' ? `<button class="btn btn-outline btn-sm" onclick="resumeTask('${t.id}')">继续</button>` : ''}
-                            ${t.status === 'failed' ? `<button class="btn btn-outline btn-sm" onclick="retryTask('${t.id}')">重试</button>` : ''}
-                            <button class="btn btn-outline btn-sm" onclick="viewTaskLog('${t.id}')">任务日志</button>
-                            <button class="btn btn-danger btn-sm" onclick="deleteTask('${t.id}')">删除任务</button>
-                        </div>
+                let infoRowHtml = '';
+                if (t.status === 'completed') {
+                    const totalSz = (t.total_size && t.total_size !== '--') ? t.total_size : (t.downloaded || '完整');
+                    const spd = (t.final_speed && t.final_speed !== '--') ? t.final_speed : (t.speed || '--');
+                    const cost = t.time_cost_str || '--';
+                    infoRowHtml = `
+                        <span>大小: <strong style="color: var(--text-main);">${escapeHtml(totalSz)}</strong></span>
+                        <span>平均速率: <strong style="color: #10b981;">${escapeHtml(spd)}</strong></span>
+                        <span>耗时: <strong style="color: #38bdf8;">${escapeHtml(cost)}</strong></span>
                     `;
+                } else if (t.status === 'downloading' || t.status === 'merging') {
+                    const dlSizeStr = (t.downloaded && t.total_size && t.total_size !== '--') ? ` (${escapeHtml(t.downloaded)} / ${escapeHtml(t.total_size)})` : '';
+                    const currentSpd = (t.status === 'merging') ? '转码合并中' : (t.speed || '--');
+                    const currentEta = (t.status === 'merging') ? '处理中' : (t.eta || '--');
+                    infoRowHtml = `
+                        <span>进度: <strong style="color: var(--text-main);">${progress.toFixed(1)}%${dlSizeStr}</strong></span>
+                        <span>速率: <strong style="color: #10b981;">${escapeHtml(currentSpd)}</strong></span>
+                        <span>剩余: <strong style="color: #38bdf8;">${escapeHtml(currentEta)}</strong></span>
+                    `;
+                } else {
+                    infoRowHtml = `
+                        <span>进度: ${progress.toFixed(1)}%</span>
+                        <span>状态: ${statusLabel}</span>
+                        <span>格式: ${escapeHtml(t.container || 'mp4').toUpperCase()}</span>
+                    `;
+                }
+
+                item.innerHTML = `
+                    <div class="task-top">
+                        <div style="flex: 1; min-width: 0;">
+                            <div class="task-title" title="${escapeHtml(t.title)}">${escapeHtml(t.title)}</div>
+                            <div class="task-subtitle">存储目录: ${escapeHtml(t.download_dir || '--')}</div>
+                        </div>
+                        <div style="text-align: right; display: flex; align-items: center; gap: 4px; flex-shrink: 0;">
+                            <span style="display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; background: rgba(255,255,255,0.06); color: ${statusColor};">
+                                ${statusLabel}
+                            </span>
+                            <span class="task-toggle-icon">▼</span>
+                        </div>
+                    </div>
+                    <div class="task-progress-bar">
+                        <div class="task-progress-inner" style="width: ${progress}%;"></div>
+                    </div>
+                    <div class="task-info-row">
+                        ${infoRowHtml}
+                    </div>
+                    ${t.error_message ? `<div class="task-err-msg" style="font-size: 11px; color: #ef4444; background: rgba(239,68,68,0.1); padding: 6px 10px; border-radius: 4px; word-break: break-all;">${escapeHtml(t.error_message)}</div>` : ''}
+                    <div class="task-actions">
+                        ${t.status === 'downloading' ? `<button class="btn btn-outline btn-sm" onclick="pauseTask('${t.id}')">暂停</button>` : ''}
+                        ${t.status === 'paused' ? `<button class="btn btn-outline btn-sm" onclick="resumeTask('${t.id}')">继续</button>` : ''}
+                        ${t.status === 'failed' ? `<button class="btn btn-outline btn-sm" onclick="retryTask('${t.id}')">重试</button>` : ''}
+                        <button class="btn btn-outline btn-sm" onclick="viewTaskLog('${t.id}')">任务日志</button>
+                        <button class="btn btn-danger btn-sm" onclick="deleteTask('${t.id}')">删除任务</button>
+                    </div>
+                `;
                 container.appendChild(item);
             });
+
+            // 渲染底部分页器
+            if (totalPages > 1) {
+                const paginationEl = document.createElement('div');
+                paginationEl.className = 'pagination-container';
+
+                let pageButtonsHtml = `
+                    <button class="page-btn" ${taskCurrentPage <= 1 ? 'disabled' : ''} onclick="goToTaskPage(${taskCurrentPage - 1})">上一页</button>
+                `;
+
+                for (let p = 1; p <= totalPages; p++) {
+                    pageButtonsHtml += `
+                        <button class="page-btn ${p === taskCurrentPage ? 'active' : ''}" onclick="goToTaskPage(${p})">${p}</button>
+                    `;
+                }
+
+                pageButtonsHtml += `
+                    <button class="page-btn" ${taskCurrentPage >= totalPages ? 'disabled' : ''} onclick="goToTaskPage(${taskCurrentPage + 1})">下一页</button>
+                `;
+
+                paginationEl.innerHTML = `
+                    <div>共 <strong>${totalTasks}</strong> 个下载任务 · 第 <strong>${taskCurrentPage}</strong> / <strong>${totalPages}</strong> 页</div>
+                    <div class="pagination-buttons">
+                        ${pageButtonsHtml}
+                    </div>
+                `;
+                container.appendChild(paginationEl);
+            }
         }
 
         async function pauseTask(taskId) {
