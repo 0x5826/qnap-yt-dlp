@@ -64,6 +64,9 @@ foreach ($tasks as $idx => &$task) {
                             $task['eta'] = trim($parts[2]);
                             if (isset($parts[3])) $task['downloaded'] = trim($parts[3]);
                             if (isset($parts[4])) $task['total_size'] = trim($parts[4]);
+                            if (!empty($task['speed']) && $task['speed'] !== '--' && stripos($task['speed'], 'unknown') === false) {
+                                $task['final_speed'] = $task['speed'];
+                            }
                             $task['updated_at'] = $now;
                             $tasks_updated = true;
                             break;
@@ -80,12 +83,27 @@ foreach ($tasks as $idx => &$task) {
             $exit_code = file_exists($exit_code_file) ? trim(file_get_contents($exit_code_file)) : '-1';
 
             if ($exit_code === '0') {
+                $start_time = intval($task['started_at'] ?? $task['created_at'] ?? $now);
+                $elapsed = max(1, $now - $start_time);
+                $m = floor($elapsed / 60);
+                $s = $elapsed % 60;
+                $cost_str = ($m > 0) ? "{$m}分{$s}秒" : "{$s}秒";
+
                 $task['status'] = 'completed';
                 $task['progress'] = 100;
-                $task['speed'] = '--';
                 $task['eta'] = '00:00';
                 $task['completed_at'] = $now;
-                @file_put_contents(CONF_DIR . '/logs/daemon.log', "[" . date('Y-m-d H:i:s') . "] [SUCCESS] 任务 [{$task_id}] 下载并处理完成: {$task['title']}\n", FILE_APPEND | LOCK_EX);
+                $task['elapsed_time'] = $elapsed;
+                $task['time_cost_str'] = $cost_str;
+
+                $final_spd = $task['final_speed'] ?? $task['speed'] ?? '';
+                if (empty($final_spd) || $final_spd === '--' || stripos($final_spd, 'unknown') !== false) {
+                    $final_spd = '已完成';
+                }
+                $task['speed'] = $final_spd;
+                $task['final_speed'] = $final_spd;
+
+                @file_put_contents(CONF_DIR . '/logs/daemon.log', "[" . date('Y-m-d H:i:s') . "] [SUCCESS] 任务 [{$task_id}] 下载并处理完成 (耗时: {$cost_str}, 速率: {$final_spd}): {$task['title']}\n", FILE_APPEND | LOCK_EX);
             } else {
                 $task['status'] = 'failed';
                 $task['speed'] = '--';

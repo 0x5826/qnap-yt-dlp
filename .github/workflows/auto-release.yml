@@ -65,7 +65,7 @@ jobs:
             TAG_NAME="v${BUILD_VER}"
           fi
           echo "tag_name=${TAG_NAME}" >> $GITHUB_OUTPUT
-          echo "release_title=yt-dlp QNAP 媒体下载器 ${TAG_NAME}" >> $GITHUB_OUTPUT
+          echo "release_title=媒体下载 QNAP 套件 ${TAG_NAME}" >> $GITHUB_OUTPUT
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4

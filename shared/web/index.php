@@ -69,9 +69,9 @@ if (!$isQnapAuth):
                 <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
             </svg>
         </div>
-        <h1>QNAP 身份鉴权</h1>
+        <h1>QNAP 身份鉴权 · 媒体下载</h1>
         <div class="message">
-            访问 yt-dlp 媒体管理控制台需要先验证 QTS 登录身份。<br>检测到当前未处于有效的管理员会话中。
+            访问媒体下载管理控制台需要先验证 QTS 登录身份。<br>检测到当前未处于有效的管理员会话中。
         </div>
         <a href="/" class="btn-login">前往 QTS 桌面登录</a>
         <div class="footer-info">
@@ -101,7 +101,7 @@ endif;
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>yt-dlp 媒体下载管理器 - QNAP</title>
+    <title>媒体下载 - QNAP 管理控制台</title>
     <link rel="shortcut icon" href="static/favicon.png?v=<?= $assetVer ?>" type="image/png">
     <style>
         :root {
@@ -110,14 +110,14 @@ endif;
             --bg-card: #1e293b;
             --bg-hover: #334155;
             --border-color: rgba(255, 255, 255, 0.08);
-            --border-focus: #e11d48;
+            --border-focus: #0ea5e9;
 
             --text-main: #f8fafc;
             --text-muted: #94a3b8;
             --text-dim: #64748b;
 
-            --primary: #e11d48;
-            --primary-hover: #f43f5e;
+            --primary: #0ea5e9;
+            --primary-hover: #38bdf8;
             --accent-cyan: #0ea5e9;
             --success: #10b981;
             --warning: #f59e0b;
@@ -145,7 +145,7 @@ endif;
         }
 
         .container {
-            max-width: 1080px;
+            max-width: 980px;
             margin: 0 auto;
         }
 
@@ -529,18 +529,21 @@ endif;
             border-color: rgba(16, 185, 129, 0.3);
         }
 
-        /* 选项卡控制器 */
+        /* 选项卡控制器 (对齐 EasyTier / Lucky 优雅分段控制器设计) */
         .tab-bar {
             display: flex;
-            gap: 8px;
+            gap: 6px;
             margin-bottom: 16px;
-            border-bottom: 1px solid var(--border-color);
-            padding-bottom: 8px;
+            background: var(--bg-surface);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            padding: 5px;
             overflow-x: auto;
+            box-shadow: var(--shadow-sm);
         }
 
         .tab-btn {
-            background: none;
+            background: transparent;
             border: none;
             color: var(--text-muted);
             padding: 8px 16px;
@@ -554,13 +557,13 @@ endif;
 
         .tab-btn:hover {
             color: var(--text-main);
-            background: rgba(255, 255, 255, 0.04);
+            background: rgba(255, 255, 255, 0.05);
         }
 
         .tab-btn.active {
             color: #fff;
-            background: rgba(225, 29, 72, 0.15);
-            border: 1px solid rgba(225, 29, 72, 0.35);
+            background: var(--primary);
+            box-shadow: 0 2px 10px rgba(14, 165, 233, 0.35);
         }
 
         .tab-content {
@@ -858,10 +861,10 @@ endif;
                 <img src="static/logo.png?v=<?= $assetVer ?>" alt="yt-dlp logo" class="official-logo">
                 <div class="title-meta">
                     <h1>
-                        yt-dlp
+                        媒体下载
                         <span class="badge-version" id="ver-badge">加载中</span>
                     </h1>
-                    <div class="app-subtitle">全能流媒体音视频解析与调度下载套件</div>
+                    <div class="app-subtitle">基于 yt-dlp 与 FFmpeg 的高性能媒体下载套件</div>
                 </div>
             </div>
             <div class="header-right">
@@ -877,18 +880,29 @@ endif;
             </div>
         </header>
 
-        <!-- 核心状态指标卡片网格 -->
+        <!-- 核心状态指标卡片网格 (紧凑双排、高对称度设计) -->
         <div class="stat-grid">
             <div class="stat-card">
-                <div class="stat-icon bg-rose">
+                <div class="stat-icon bg-indigo">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <circle cx="12" cy="12" r="10"></circle>
                         <polygon points="10 8 16 12 10 16 10 8"></polygon>
                     </svg>
                 </div>
                 <div class="stat-info">
-                    <div class="stat-label">任务队列概况</div>
-                    <div class="stat-value" id="stat-tasks-summary">0 下载中 · 0 排队</div>
+                    <div class="stat-label">任务调度状态</div>
+                    <div class="stat-value-sub">
+                        <div class="stat-line-item">
+                            <span style="color: var(--text-muted);">下载中:</span>
+                            <span id="stat-dl-count" style="color: #10b981; font-weight: 700;">0</span>
+                            <span style="color: var(--text-muted); font-size: 11px;">个</span>
+                        </div>
+                        <div class="stat-line-item">
+                            <span style="color: var(--text-muted);">排队中:</span>
+                            <span id="stat-pending-count" style="color: #38bdf8; font-weight: 700;">0</span>
+                            <span style="color: var(--text-muted); font-size: 11px;">个</span>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -901,8 +915,8 @@ endif;
                     </svg>
                 </div>
                 <div class="stat-info">
-                    <div class="stat-label">当前全局下载速率</div>
-                    <div class="stat-value" id="stat-speed">--</div>
+                    <div class="stat-label">全局下载速率</div>
+                    <div class="stat-value" id="stat-speed" style="font-size: 16px; color: #38bdf8;">--</div>
                 </div>
             </div>
 
@@ -913,8 +927,17 @@ endif;
                     </svg>
                 </div>
                 <div class="stat-info">
-                    <div class="stat-label">目标存储空间余量</div>
-                    <div class="stat-value" id="stat-storage">-- 可用</div>
+                    <div class="stat-label">目标存储空间</div>
+                    <div class="stat-value-sub">
+                        <div class="stat-line-item">
+                            <span style="color: var(--text-muted);">可用:</span>
+                            <span id="stat-storage-free" style="color: #10b981; font-weight: 700;">--</span>
+                        </div>
+                        <div class="stat-line-item">
+                            <span style="color: var(--text-muted);">总计:</span>
+                            <span id="stat-storage-total" style="color: var(--text-muted);">--</span>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -1227,10 +1250,21 @@ endif;
                     dot.className = 'pulse-dot status-dot-running';
                     text.textContent = '调度引擎: 实时就绪';
 
-                    // 统计指标
+                    // 统计指标渲染
                     const st = d.stats;
-                    document.getElementById('stat-tasks-summary').textContent = `${st.downloading} 下载中 · ${st.pending} 排队`;
+                    const dlCountEl = document.getElementById('stat-dl-count');
+                    const pendingCountEl = document.getElementById('stat-pending-count');
+                    if (dlCountEl) dlCountEl.textContent = st.downloading;
+                    if (pendingCountEl) pendingCountEl.textContent = st.pending;
+
                     document.getElementById('stat-speed').textContent = (st.current_speed && st.current_speed !== '--') ? st.current_speed : '--';
+
+                    // 目标存储空间（双排显示：可用 / 总计，大幅减少横向挤压）
+                    const freeEl = document.getElementById('stat-storage-free');
+                    const totalEl = document.getElementById('stat-storage-total');
+                    if (freeEl) freeEl.textContent = d.free_space_str;
+                    if (totalEl) totalEl.textContent = d.total_space_str;
+
                     // 渲染核心引擎与组件规格（紧凑双行排版）
                     document.getElementById('stat-ytdlp-val').textContent = d.ytdlp_version;
                     document.getElementById('stat-ffmpeg-val').textContent = d.ffmpeg_version;
@@ -1244,7 +1278,6 @@ endif;
                         badgeEl.style.display = 'none';
                     }
 
-                    document.getElementById('stat-storage').textContent = `${d.free_space_str} 可用 / ${d.total_space_str}`;
                     document.getElementById('task-badge').textContent = st.downloading + st.pending;
                 }
             } catch (e) {
@@ -1430,35 +1463,57 @@ endif;
 
                 const progress = t.progress || 0;
 
-                item.innerHTML = `
-                    <div class="task-top">
-                        <div>
-                            <div class="task-title">${escapeHtml(t.title)}</div>
-                            <div class="task-subtitle">存储目录: ${escapeHtml(t.download_dir || '--')}</div>
+                    let infoRowHtml = '';
+                    if (t.status === 'completed') {
+                        const totalSz = t.total_size || t.downloaded || '完整';
+                        const spd = t.final_speed || t.speed || '--';
+                        const cost = t.time_cost_str || '--';
+                        infoRowHtml = `
+                            <span>大小: <strong style="color: var(--text-main);">${escapeHtml(totalSz)}</strong></span>
+                            <span>平均速率: <strong style="color: #10b981;">${escapeHtml(spd)}</strong></span>
+                            <span>耗时: <strong style="color: #38bdf8;">${escapeHtml(cost)}</strong></span>
+                        `;
+                    } else if (t.status === 'downloading' || t.status === 'merging') {
+                        infoRowHtml = `
+                            <span>进度: <strong style="color: var(--text-main);">${progress.toFixed(1)}%</strong></span>
+                            <span>速率: <strong style="color: #10b981;">${escapeHtml(t.speed || '--')}</strong></span>
+                            <span>剩余: <strong style="color: #38bdf8;">${escapeHtml(t.eta || '--')}</strong></span>
+                        `;
+                    } else {
+                        infoRowHtml = `
+                            <span>进度: ${progress.toFixed(1)}%</span>
+                            <span>状态: ${statusLabel}</span>
+                            <span>格式: ${escapeHtml(t.container || 'mp4').toUpperCase()}</span>
+                        `;
+                    }
+
+                    item.innerHTML = `
+                        <div class="task-top">
+                            <div>
+                                <div class="task-title">${escapeHtml(t.title)}</div>
+                                <div class="task-subtitle">存储目录: ${escapeHtml(t.download_dir || '--')}</div>
+                            </div>
+                            <div style="text-align: right;">
+                                <span style="display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; background: rgba(255,255,255,0.06); color: ${statusColor};">
+                                    ${statusLabel}
+                                </span>
+                            </div>
                         </div>
-                        <div style="text-align: right;">
-                            <span style="display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; background: rgba(255,255,255,0.06); color: ${statusColor};">
-                                ${statusLabel}
-                            </span>
+                        <div class="task-progress-bar">
+                            <div class="task-progress-inner" style="width: ${progress}%;"></div>
                         </div>
-                    </div>
-                    <div class="task-progress-bar">
-                        <div class="task-progress-inner" style="width: ${progress}%;"></div>
-                    </div>
-                    <div class="task-info-row">
-                        <span>进度: ${progress.toFixed(1)}%</span>
-                        <span>速率: ${escapeHtml(t.speed || '--')}</span>
-                        <span>剩余: ${escapeHtml(t.eta || '--')}</span>
-                    </div>
-                    ${t.error_message ? `<div style="font-size: 11px; color: #ef4444; background: rgba(239,68,68,0.1); padding: 6px 10px; border-radius: 4px;">${escapeHtml(t.error_message)}</div>` : ''}
-                    <div class="task-actions">
-                        ${t.status === 'downloading' ? `<button class="btn btn-outline btn-sm" onclick="pauseTask('${t.id}')">暂停</button>` : ''}
-                        ${t.status === 'paused' ? `<button class="btn btn-outline btn-sm" onclick="resumeTask('${t.id}')">继续</button>` : ''}
-                        ${t.status === 'failed' ? `<button class="btn btn-outline btn-sm" onclick="retryTask('${t.id}')">重试</button>` : ''}
-                        <button class="btn btn-outline btn-sm" onclick="viewTaskLog('${t.id}')">控制台日志</button>
-                        <button class="btn btn-danger btn-sm" onclick="deleteTask('${t.id}')">删除任务</button>
-                    </div>
-                `;
+                        <div class="task-info-row">
+                            ${infoRowHtml}
+                        </div>
+                        ${t.error_message ? `<div style="font-size: 11px; color: #ef4444; background: rgba(239,68,68,0.1); padding: 6px 10px; border-radius: 4px;">${escapeHtml(t.error_message)}</div>` : ''}
+                        <div class="task-actions">
+                            ${t.status === 'downloading' ? `<button class="btn btn-outline btn-sm" onclick="pauseTask('${t.id}')">暂停</button>` : ''}
+                            ${t.status === 'paused' ? `<button class="btn btn-outline btn-sm" onclick="resumeTask('${t.id}')">继续</button>` : ''}
+                            ${t.status === 'failed' ? `<button class="btn btn-outline btn-sm" onclick="retryTask('${t.id}')">重试</button>` : ''}
+                            <button class="btn btn-outline btn-sm" onclick="viewTaskLog('${t.id}')">控制台日志</button>
+                            <button class="btn btn-danger btn-sm" onclick="deleteTask('${t.id}')">删除任务</button>
+                        </div>
+                    `;
                 container.appendChild(item);
             });
         }

@@ -40,7 +40,7 @@ echo "==> [1/2] Building Slim Packages (System FFmpeg Edition)..."
 # 清理内置 ffmpeg/ffprobe
 rm -f x86_64/ffmpeg x86_64/ffprobe arm_64/ffmpeg arm_64/ffprobe
 
-python3 -c "import re; s=open('qpkg.cfg').read(); s=re.sub(r'QPKG_DISPLAY_NAME=.*', 'QPKG_DISPLAY_NAME=\"yt-dlp (Slim)\"', s); open('qpkg.cfg', 'w').write(s)"
+python3 -c "import re; s=open('qpkg.cfg').read(); s=re.sub(r'QPKG_DISPLAY_NAME=.*', 'QPKG_DISPLAY_NAME=\"媒体下载 (Slim)\"', s); open('qpkg.cfg', 'w').write(s)"
 rm -rf build_slim_tmp
 mkdir -p build_slim_tmp
 
@@ -62,7 +62,7 @@ rm -rf build_slim_tmp
 echo "==> [2/2] Building Full Packages (Built-in Static FFmpeg Edition)..."
 ./scripts/download_binaries.sh
 
-python3 -c "import re; s=open('qpkg.cfg').read(); s=re.sub(r'QPKG_DISPLAY_NAME=.*', 'QPKG_DISPLAY_NAME=\"yt-dlp (Full)\"', s); open('qpkg.cfg', 'w').write(s)"
+python3 -c "import re; s=open('qpkg.cfg').read(); s=re.sub(r'QPKG_DISPLAY_NAME=.*', 'QPKG_DISPLAY_NAME=\"媒体下载 (Full)\"', s); open('qpkg.cfg', 'w').write(s)"
 rm -rf build_full_tmp
 mkdir -p build_full_tmp
 
