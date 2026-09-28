@@ -117,15 +117,17 @@ function handle_status() {
     }
 
     $ffmpeg_ver = '未就绪';
+    $ffmpeg_source = '未安装';
     if ($ffmpeg_bin) {
+        $real_path = @realpath($ffmpeg_bin) ?: $ffmpeg_bin;
         $ff_out = shell_exec(escapeshellarg($ffmpeg_bin) . " -version 2>/dev/null | head -n 1");
         if ($ff_out) {
             preg_match('/version\s+([^\s]+)/i', $ff_out, $m);
-            $ver_text = $m[1] ?? '已安装';
-            if (strpos($ffmpeg_bin, '/usr/') === 0 || strpos($ffmpeg_bin, '/opt/') === 0) {
-                $ffmpeg_ver = $ver_text . ' (系统原生)';
+            $ffmpeg_ver = $m[1] ?? '已安装';
+            if (strpos($real_path, '/usr/') === 0 || strpos($real_path, '/mnt/') === 0 || strpos($real_path, '/opt/') === 0) {
+                $ffmpeg_source = '系统原生';
             } else {
-                $ffmpeg_ver = $ver_text . ' (内置静态)';
+                $ffmpeg_source = '内置静态';
             }
         }
     }
@@ -168,6 +170,7 @@ function handle_status() {
             'qpkg_version' => $qpkg_ver,
             'ytdlp_version' => $ytdlp_ver,
             'ffmpeg_version' => $ffmpeg_ver,
+            'ffmpeg_source' => $ffmpeg_source,
             'daemon_alive' => $daemon_alive,
             'daemon_pid' => $daemon_pid,
             'autostart' => intval($config['autostart'] ?? 1),
@@ -535,11 +538,13 @@ function handle_get_task_log() {
 
 function handle_get_daemon_log() {
     $log_file = LOGS_DIR . '/daemon.log';
-    if (!file_exists($log_file)) {
-        json_response(['code' => 0, 'data' => ['log' => '暂无系统守护日志。']]);
+    if (!file_exists($log_file) || filesize($log_file) === 0) {
+        $init_line = sprintf("[%s] [SYSTEM] yt-dlp 调度与运行服务就绪，按需事件驱动架构已激活，等待任务触发...\n", date('Y-m-d H:i:s'));
+        @file_put_contents($log_file, $init_line, LOCK_EX);
+        @chmod($log_file, 0666);
     }
     $content = shell_exec("tail -n 300 " . escapeshellarg($log_file));
-    json_response(['code' => 0, 'data' => ['log' => $content ?: '']]);
+    json_response(['code' => 0, 'data' => ['log' => $content ?: '暂无系统日志。']]);
 }
 
 function handle_clear_daemon_log() {

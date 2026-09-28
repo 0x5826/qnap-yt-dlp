@@ -490,6 +490,43 @@ endif;
             text-overflow: ellipsis;
         }
 
+        .stat-value-sub {
+            font-size: 11.5px;
+            font-weight: 600;
+            color: var(--text-main);
+            font-family: var(--font-mono);
+            line-height: 1.4;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .stat-line-item {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .engine-badge {
+            font-size: 10px;
+            font-weight: 600;
+            padding: 1px 5px;
+            border-radius: 3px;
+            background: rgba(14, 165, 233, 0.15);
+            color: #38bdf8;
+            border: 1px solid rgba(14, 165, 233, 0.3);
+            letter-spacing: 0;
+            display: inline-block;
+        }
+        .engine-badge-native {
+            background: rgba(16, 185, 129, 0.15);
+            color: #34d399;
+            border-color: rgba(16, 185, 129, 0.3);
+        }
+
         /* 选项卡控制器 */
         .tab-bar {
             display: flex;
@@ -889,8 +926,18 @@ endif;
                     </svg>
                 </div>
                 <div class="stat-info">
-                    <div class="stat-label">核心引擎与规格</div>
-                    <div class="stat-value" id="stat-engine-ver">加载中...</div>
+                    <div class="stat-label">核心引擎与组件</div>
+                    <div class="stat-value-sub" id="stat-engine-ver">
+                        <div class="stat-line-item">
+                            <span style="color: var(--text-muted);">yt-dlp:</span>
+                            <span id="stat-ytdlp-val">加载中...</span>
+                        </div>
+                        <div class="stat-line-item">
+                            <span style="color: var(--text-muted);">FFmpeg:</span>
+                            <span id="stat-ffmpeg-val">加载中...</span>
+                            <span id="stat-ffmpeg-badge"></span>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1187,8 +1234,20 @@ endif;
                     const st = d.stats;
                     document.getElementById('stat-tasks-summary').textContent = `${st.downloading} 下载中 · ${st.pending} 排队`;
                     document.getElementById('stat-speed').textContent = (st.current_speed && st.current_speed !== '--') ? st.current_speed : '--';
+                    // 渲染核心引擎与组件规格（紧凑双行排版）
+                    document.getElementById('stat-ytdlp-val').textContent = d.ytdlp_version;
+                    document.getElementById('stat-ffmpeg-val').textContent = d.ffmpeg_version;
+                    const badgeEl = document.getElementById('stat-ffmpeg-badge');
+                    if (d.ffmpeg_source && d.ffmpeg_source !== '未安装') {
+                        const isNative = d.ffmpeg_source === '系统原生';
+                        badgeEl.className = isNative ? 'engine-badge engine-badge-native' : 'engine-badge';
+                        badgeEl.textContent = d.ffmpeg_source;
+                        badgeEl.style.display = 'inline-block';
+                    } else {
+                        badgeEl.style.display = 'none';
+                    }
+
                     document.getElementById('stat-storage').textContent = `${d.free_space_str} 可用 / ${d.total_space_str}`;
-                    document.getElementById('stat-engine-ver').textContent = `yt-dlp ${d.ytdlp_version} | FFmpeg ${d.ffmpeg_version}`;
                     document.getElementById('task-badge').textContent = st.downloading + st.pending;
                 }
             } catch (e) {

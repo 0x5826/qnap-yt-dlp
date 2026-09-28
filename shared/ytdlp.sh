@@ -155,6 +155,25 @@ case "$1" in
             "$PHP_BIN" "$QPKG_ROOT/web/scheduler.php" tick >/dev/null 2>&1 &
         fi
 
+        # 输出高可读性初始化与组件日志到调度日志
+        local now_str=$(date '+%Y-%m-%d %H:%M:%S')
+        echo "[$now_str] [SYSTEM] yt-dlp QPKG 套件启动初始化完成 (架构: $(uname -m), 模式: 按需事件驱动)" >> "$DAEMON_LOG"
+        echo "[$now_str] [RUNTIME] PHP 引擎: $PHP_BIN" >> "$DAEMON_LOG"
+
+        local ytdlp_v="未就绪"
+        local ffmpeg_v="未就绪"
+        [ -x "$BIN_DIR/yt-dlp" ] && ytdlp_v=$("$BIN_DIR/yt-dlp" --version 2>/dev/null || echo "已就绪")
+        if [ -x "$BIN_DIR/ffmpeg" ]; then
+            local real_ff=$(readlink -f "$BIN_DIR/ffmpeg" 2>/dev/null || echo "$BIN_DIR/ffmpeg")
+            local ff_ver_num=$("$BIN_DIR/ffmpeg" -version 2>/dev/null | head -n 1 | awk '{print $3}')
+            case "$real_ff" in
+                /usr/*|/mnt/*|/opt/*) ffmpeg_v="${ff_ver_num} (系统原生: $real_ff)" ;;
+                *) ffmpeg_v="${ff_ver_num} (内置纯静态)" ;;
+            esac
+        fi
+        echo "[$now_str] [COMPONENTS] yt-dlp: $ytdlp_v | FFmpeg: $ffmpeg_v" >> "$DAEMON_LOG"
+        echo "[$now_str] [READY] Web 管理控制台与下载任务调度器已就绪。" >> "$DAEMON_LOG"
+
         echo "$QPKG_NAME is ready (on-demand mode)."
         ;;
 
@@ -164,6 +183,9 @@ case "$1" in
         pkill -15 -f 'yt-dlp' 2>/dev/null || true
         pkill -15 -f 'ffmpeg' 2>/dev/null || true
         rm -f "$PID_FILE" 2>/dev/null || true
+
+        local now_str=$(date '+%Y-%m-%d %H:%M:%S')
+        echo "[$now_str] [SYSTEM] 收到停机指令，已终止所有活跃下载进程。" >> "$DAEMON_LOG"
         echo "$QPKG_NAME tasks stopped."
         ;;
 

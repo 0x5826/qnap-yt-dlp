@@ -85,6 +85,7 @@ foreach ($tasks as $idx => &$task) {
                 $task['speed'] = '--';
                 $task['eta'] = '00:00';
                 $task['completed_at'] = $now;
+                @file_put_contents(CONF_DIR . '/logs/daemon.log', "[" . date('Y-m-d H:i:s') . "] [SUCCESS] 任务 [{$task_id}] 下载并处理完成: {$task['title']}\n", FILE_APPEND | LOCK_EX);
             } else {
                 $task['status'] = 'failed';
                 $task['speed'] = '--';
@@ -96,6 +97,7 @@ foreach ($tasks as $idx => &$task) {
                     $err_snippet = implode("\n", $lines);
                 }
                 $task['error_message'] = $err_snippet;
+                @file_put_contents(CONF_DIR . '/logs/daemon.log', "[" . date('Y-m-d H:i:s') . "] [FAILED] 任务 [{$task_id}] 异常退出 (退出码: {$exit_code})\n", FILE_APPEND | LOCK_EX);
             }
             $task['pid'] = 0;
             $task['updated_at'] = $now;
