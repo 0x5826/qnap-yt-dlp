@@ -150,6 +150,11 @@ case "$1" in
         link_webui
         sync_system_icons
 
+        # 释放系统 /tmp 内存盘：清理历史残留的 PyInstaller 临时解压孤儿目录
+        rm -rf /tmp/_MEI* 2>/dev/null || true
+        # 清理数据盘内部临时目录的历史孤儿文件
+        rm -rf "$TMP_DIR"/_MEI* "$TMP_DIR"/tmp_* 2>/dev/null || true
+
         # 启动时自动触发一次队列补刀，接续未完成的断点任务
         if [ -f "$QPKG_ROOT/web/scheduler.php" ] && [ -n "$PHP_BIN" ]; then
             "$PHP_BIN" "$QPKG_ROOT/web/scheduler.php" tick >/dev/null 2>&1 &
@@ -162,7 +167,7 @@ case "$1" in
 
         local ytdlp_v="未就绪"
         local ffmpeg_v="未就绪"
-        [ -x "$BIN_DIR/yt-dlp" ] && ytdlp_v=$("$BIN_DIR/yt-dlp" --version 2>/dev/null || echo "已就绪")
+        [ -x "$BIN_DIR/yt-dlp" ] && ytdlp_v=$(TMPDIR="$TMP_DIR" "$BIN_DIR/yt-dlp" --version 2>/dev/null || echo "已就绪")
         if [ -x "$BIN_DIR/ffmpeg" ]; then
             local real_ff=$(readlink -f "$BIN_DIR/ffmpeg" 2>/dev/null || echo "$BIN_DIR/ffmpeg")
             local ff_ver_num=$("$BIN_DIR/ffmpeg" -version 2>/dev/null | head -n 1 | awk '{print $3}')

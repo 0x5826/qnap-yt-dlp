@@ -38,8 +38,23 @@ PROGRESS_FILE="$TASK_LOG_DIR/progress.txt"
 OUTPUT_LOG="$TASK_LOG_DIR/output.log"
 EXIT_CODE_FILE="$TASK_LOG_DIR/exit_code"
 
+# 单任务运行互斥锁检测：杜绝重复拉起相同任务的 Worker
+if [ -f "$PID_FILE" ]; then
+    OLD_PID=$(cat "$PID_FILE" 2>/dev/null | tr -d ' \r\n')
+    if [ -n "$OLD_PID" ] && [ "$OLD_PID" != "$$" ] && kill -0 "$OLD_PID" 2>/dev/null; then
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Task $TASK_ID is already active with PID $OLD_PID. Aborting duplicate worker process." >> "$OUTPUT_LOG"
+        exit 0
+    fi
+fi
+
 # 优雅转发信号，防止 yt-dlp 和 ffmpeg 产生孤儿子进程
-trap 'pkill -P $$ 2>/dev/null; kill $(jobs -p) 2>/dev/null; exit 143' TERM INT
+cleanup_children() {
+    pkill -P $$ 2>/dev/null || true
+    kill $(jobs -p) 2>/dev/null || true
+    rm -f "$PID_FILE" 2>/dev/null || true
+    exit 143
+}
+trap 'cleanup_children' TERM INT
 
 echo "$$" > "$PID_FILE"
 rm -f "$EXIT_CODE_FILE" "$PROGRESS_FILE"

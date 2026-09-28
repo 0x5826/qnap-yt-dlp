@@ -33,19 +33,11 @@ foreach ($tasks as $idx => &$task) {
 
     if ($status === 'downloading' || $status === 'merging') {
         $pid = intval($task['pid'] ?? 0);
-        $is_alive = false;
-
-        if ($pid > 0) {
-            if (file_exists("/proc/$pid")) {
-                $is_alive = true;
-            } else {
-                // macOS / POSIX fallback for testing
-                $output = shell_exec("kill -0 $pid 2>&1");
-                if (empty($output)) {
-                    $is_alive = true;
-                }
-            }
+        if ($pid <= 0 && file_exists($task_dir . '/worker.pid')) {
+            $pid = intval(trim(@file_get_contents($task_dir . '/worker.pid')));
+            if ($pid > 0) $task['pid'] = $pid;
         }
+        $is_alive = is_process_running($pid);
 
         if ($is_alive) {
             $active_count++;
@@ -188,6 +180,20 @@ if ($active_count < $max_concurrent) {
             $task_dir = LOGS_DIR . '/tasks/' . $task_id;
             if (!is_dir($task_dir)) @mkdir($task_dir, 0755, true);
 
+            // 严防重复派发：检测该任务是否已存在正在运行的 worker
+            $pid_file = $task_dir . '/worker.pid';
+            if (file_exists($pid_file)) {
+                $running_pid = intval(trim(@file_get_contents($pid_file)));
+                if ($running_pid > 0 && is_process_running($running_pid)) {
+                    // 已有活跃 worker 在跑该任务，纠正状态为 downloading，严禁重复启动
+                    $task['status'] = 'downloading';
+                    $task['pid'] = $running_pid;
+                    $tasks_updated = true;
+                    $active_count++;
+                    continue;
+                }
+            }
+
             // 保存单个任务元数据
             $task_json_file = $task_dir . '/task.json';
             atomic_write_file($task_json_file, json_encode($task, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
@@ -202,6 +208,9 @@ if ($active_count < $max_concurrent) {
             $task['updated_at'] = $now;
             $tasks_updated = true;
             $active_count++;
+
+            // 派发后立即持久化更新，封闭并发时序空隙
+            save_tasks($tasks);
 
             @file_put_contents(CONF_DIR . '/logs/daemon.log', "[" . date('Y-m-d H:i:s') . "] 调度器自动派发任务 [{$task_id}] (PID: {$worker_pid}, 标题: {$task['title']})\n", FILE_APPEND | LOCK_EX);
 

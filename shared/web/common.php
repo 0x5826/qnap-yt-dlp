@@ -334,12 +334,102 @@ function trigger_scheduler_tick() {
 }
 
 /**
+ * 判断指定 PID 进程是否存活
+ */
+function is_process_running($pid) {
+    $pid = intval($pid);
+    if ($pid <= 0) return false;
+    if (file_exists("/proc/$pid")) return true;
+    $output = shell_exec("kill -0 $pid 2>&1");
+    return empty($output);
+}
+
+/**
+ * 可靠终止指定 PID 及其全部子进程树 (yt-dlp, ffmpeg)
+ */
+function kill_process_tree($pid) {
+    $pid = intval($pid);
+    if ($pid <= 0) return;
+
+    // 先发送 SIGTERM 让子进程和父进程优雅退出
+    @shell_exec("pkill -P $pid 2>/dev/null; kill -15 $pid 2>/dev/null");
+    usleep(150000); // 150ms 缓冲
+
+    // 检查是否仍有残留，若未退出则升级为 SIGKILL 强杀
+    if (is_process_running($pid)) {
+        @shell_exec("pkill -9 -P $pid 2>/dev/null; kill -9 $pid 2>/dev/null");
+    }
+}
+
+/**
+ * 获取核心组件版本信息（带本地文件缓存，杜绝高频 shell_exec 频繁解压打爆系统 /tmp 内存盘）
+ */
+function get_cached_component_versions($force = false) {
+    $cache_file = CONF_DIR . '/.component_versions.json';
+    $now = time();
+    if (!$force && file_exists($cache_file)) {
+        $content = @file_get_contents($cache_file);
+        $data = json_decode($content, true);
+        if (is_array($data) && ($now - intval($data['cached_at'] ?? 0)) < 3600) {
+            return $data;
+        }
+    }
+
+    $ytdlp_bin = get_binary_path('yt-dlp');
+    $ffmpeg_bin = get_binary_path('ffmpeg');
+
+    $ytdlp_ver = '未就绪';
+    if ($ytdlp_bin) {
+        // 关键防护：命令前缀强制内联指定 TMPDIR 为数据盘，避免 PyInstaller 解压到 QTS 64MB /tmp
+        $cmd = 'TMPDIR=' . escapeshellarg(CUSTOM_TMP_DIR) . ' ' . escapeshellarg($ytdlp_bin) . ' --version 2>/dev/null';
+        $ver_out = shell_exec($cmd);
+        if ($ver_out) $ytdlp_ver = trim($ver_out);
+    }
+
+    $ffmpeg_ver = '未就绪';
+    $ffmpeg_source = '未安装';
+    if ($ffmpeg_bin) {
+        $real_path = @realpath($ffmpeg_bin) ?: $ffmpeg_bin;
+        $is_external = is_link($ffmpeg_bin) || (strpos($real_path, BASE_DIR) !== 0);
+        if ($is_external || strpos($real_path, 'MultimediaConsole') !== false || strpos($real_path, '/usr/') === 0 || strpos($real_path, '/mnt/') === 0 || strpos($real_path, '/opt/') === 0) {
+            $ffmpeg_source = '系统原生';
+        } else {
+            $ffmpeg_source = '内置静态';
+        }
+
+        $ff_cmd = 'export LD_LIBRARY_PATH="/usr/lib:/usr/local/lib:/usr/local/medialibrary/lib:/opt/lib:$LD_LIBRARY_PATH"; ' . escapeshellarg($ffmpeg_bin) . ' -version 2>&1 | head -n 1';
+        $ff_out = shell_exec($ff_cmd);
+        if ($ff_out && preg_match('/version\s+([^\s]+)/i', $ff_out, $m)) {
+            $ffmpeg_ver = $m[1];
+        } elseif (!empty($ff_out)) {
+            $ffmpeg_ver = '已安装';
+        }
+    }
+
+    $result = [
+        'cached_at' => $now,
+        'ytdlp_version' => $ytdlp_ver,
+        'ffmpeg_version' => $ffmpeg_ver,
+        'ffmpeg_source' => $ffmpeg_source
+    ];
+
+    atomic_write_file($cache_file, json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+    return $result;
+}
+
+/**
  * 解析单行下载日志，提取进度、速率、剩余时间与大小
  * 全面兼容：YTDLP_PROGRESS 前缀、download 前缀、以及无前缀的纯管道符百分比行
+ * 严防模板占位符穿透 (%(progress....)) 与命令行输出干扰
  */
 function parse_ytdlp_log_line($line) {
     $line = trim($line);
     if (empty($line)) return null;
+
+    // 严格过滤：若包含命令行标识或未替换的 Python 格式化占位符，坚决忽略
+    if (stripos($line, 'Command:') !== false || strpos($line, '%(progress.') !== false || strpos($line, '%(') !== false) {
+        return null;
+    }
 
     $raw = '';
     if (strpos($line, 'YTDLP_PROGRESS:') !== false) {
@@ -351,13 +441,25 @@ function parse_ytdlp_log_line($line) {
     }
 
     if (!empty($raw)) {
+        // 若提取出的内容仍含有模板特征字符串，直接废弃
+        if (strpos($raw, '%(') !== false) return null;
+
         $parts = explode('|', $raw);
         if (count($parts) >= 3) {
-            $pct = floatval(str_replace('%', '', trim($parts[0])));
+            $raw_pct = trim(str_replace('%', '', $parts[0]));
+            if (!is_numeric($raw_pct)) {
+                return null;
+            }
+            $pct = floatval($raw_pct);
             $spd = trim($parts[1]);
             $eta = trim($parts[2]);
             $dl = isset($parts[3]) ? trim($parts[3]) : '';
             $sz = isset($parts[4]) ? trim($parts[4]) : '';
+
+            // 防御二次检查：确保各个分段无非法模板占位符
+            if (strpos($dl, '%(') !== false || strpos($sz, '%(') !== false || strpos($spd, '%(') !== false) {
+                return null;
+            }
 
             $res = ['progress' => $pct];
             if (!empty($spd) && $spd !== '--' && $spd !== 'NA' && stripos($spd, 'unknown') === false) {

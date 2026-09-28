@@ -109,35 +109,10 @@ switch ($action) {
 function handle_status() {
     trigger_scheduler_tick();
 
-    $ytdlp_bin = get_binary_path('yt-dlp');
-    $ffmpeg_bin = get_binary_path('ffmpeg');
-    $ffprobe_bin = get_binary_path('ffprobe');
-
-    $ytdlp_ver = '未就绪';
-    if ($ytdlp_bin) {
-        $ver_out = shell_exec(escapeshellarg($ytdlp_bin) . " --version 2>/dev/null");
-        if ($ver_out) $ytdlp_ver = trim($ver_out);
-    }
-
-    $ffmpeg_ver = '未就绪';
-    $ffmpeg_source = '未安装';
-    if ($ffmpeg_bin) {
-        $real_path = @realpath($ffmpeg_bin) ?: $ffmpeg_bin;
-        $is_external = is_link($ffmpeg_bin) || (strpos($real_path, BASE_DIR) !== 0);
-        if ($is_external || strpos($real_path, 'MultimediaConsole') !== false || strpos($real_path, '/usr/') === 0 || strpos($real_path, '/mnt/') === 0 || strpos($real_path, '/opt/') === 0) {
-            $ffmpeg_source = '系统原生';
-        } else {
-            $ffmpeg_source = '内置静态';
-        }
-
-        $ff_cmd = 'export LD_LIBRARY_PATH="/usr/lib:/usr/local/lib:/usr/local/medialibrary/lib:/opt/lib:$LD_LIBRARY_PATH"; ' . escapeshellarg($ffmpeg_bin) . ' -version 2>&1 | head -n 1';
-        $ff_out = shell_exec($ff_cmd);
-        if ($ff_out && preg_match('/version\s+([^\s]+)/i', $ff_out, $m)) {
-            $ffmpeg_ver = $m[1];
-        } elseif (!empty($ff_out)) {
-            $ffmpeg_ver = '已安装';
-        }
-    }
+    $versions = get_cached_component_versions(false);
+    $ytdlp_ver = $versions['ytdlp_version'] ?? '未就绪';
+    $ffmpeg_ver = $versions['ffmpeg_version'] ?? '未就绪';
+    $ffmpeg_source = $versions['ffmpeg_source'] ?? '未安装';
 
     $build_ver_file = BASE_DIR . '/build_version';
     $qpkg_ver = file_exists($build_ver_file) ? trim(file_get_contents($build_ver_file)) : '1.0.0';
@@ -252,7 +227,7 @@ function handle_parse_url($input) {
     }
 
     $config = get_app_config();
-    $cmd = escapeshellarg($ytdlp_bin) . ' -J --no-warnings --no-check-certificates --flat-playlist --socket-timeout 20';
+    $cmd = 'TMPDIR=' . escapeshellarg(CUSTOM_TMP_DIR) . ' ' . escapeshellarg($ytdlp_bin) . ' -J --no-warnings --no-check-certificates --flat-playlist --socket-timeout 20';
 
     if (!empty($config['proxy'])) {
         $cmd .= ' --proxy ' . escapeshellarg($config['proxy']);
@@ -456,12 +431,16 @@ function handle_pause_task($input) {
     foreach ($tasks as &$t) {
         if ($t['id'] === $task_id) {
             $found = true;
-            if ($t['status'] === 'downloading' || $t['status'] === 'merging') {
-                $pid = intval($t['pid'] ?? 0);
-                if ($pid > 0) {
-                    shell_exec("pkill -P $pid 2>/dev/null; kill -15 $pid 2>/dev/null");
-                }
+            $task_dir = LOGS_DIR . '/tasks/' . $task_id;
+            $pid = intval($t['pid'] ?? 0);
+            if ($pid <= 0 && file_exists($task_dir . '/worker.pid')) {
+                $pid = intval(trim(@file_get_contents($task_dir . '/worker.pid')));
             }
+            if ($pid > 0) {
+                kill_process_tree($pid);
+            }
+            @unlink($task_dir . '/worker.pid');
+
             $t['status'] = 'paused';
             $t['speed'] = '--';
             $t['pid'] = 0;
@@ -511,9 +490,23 @@ function handle_retry_task($input) {
     foreach ($tasks as &$t) {
         if ($t['id'] === $task_id) {
             $found = true;
+            $task_dir = LOGS_DIR . '/tasks/' . $task_id;
+            $pid = intval($t['pid'] ?? 0);
+            if ($pid <= 0 && file_exists($task_dir . '/worker.pid')) {
+                $pid = intval(trim(@file_get_contents($task_dir . '/worker.pid')));
+            }
+            if ($pid > 0) {
+                kill_process_tree($pid);
+            }
+            @unlink($task_dir . '/worker.pid');
+            @unlink($task_dir . '/exit_code');
+
             $t['status'] = 'pending';
             $t['error_message'] = '';
             $t['progress'] = 0;
+            $t['speed'] = '--';
+            $t['eta'] = '--';
+            $t['pid'] = 0;
             $t['updated_at'] = time();
             break;
         }
@@ -523,7 +516,7 @@ function handle_retry_task($input) {
     if ($found) {
         save_tasks($tasks);
         trigger_scheduler_tick();
-        json_response(['code' => 0, 'message' => '任务已重置并加入队列']);
+        json_response(['code' => 0, 'message' => '任务已重置并重新加入队列']);
     } else {
         json_response(['code' => 404, 'message' => '未找到指定任务'], 404);
     }
@@ -538,13 +531,14 @@ function handle_delete_task($input) {
     foreach ($tasks as $t) {
         if ($t['id'] === $task_id) {
             $found = true;
-            if ($t['status'] === 'downloading' || $t['status'] === 'merging') {
-                $pid = intval($t['pid'] ?? 0);
-                if ($pid > 0) {
-                    shell_exec("pkill -P $pid 2>/dev/null; kill -9 $pid 2>/dev/null");
-                }
-            }
             $task_dir = LOGS_DIR . '/tasks/' . $task_id;
+            $pid = intval($t['pid'] ?? 0);
+            if ($pid <= 0 && file_exists($task_dir . '/worker.pid')) {
+                $pid = intval(trim(@file_get_contents($task_dir . '/worker.pid')));
+            }
+            if ($pid > 0) {
+                kill_process_tree($pid);
+            }
             if (is_dir($task_dir)) {
                 shell_exec("rm -rf " . escapeshellarg($task_dir));
             }
@@ -649,7 +643,8 @@ function handle_update_ytdlp() {
     if (!$ytdlp_bin) {
         json_response(['code' => 500, 'message' => '未找到 yt-dlp 二进制文件'], 500);
     }
-    $cmd = escapeshellarg($ytdlp_bin) . ' -U 2>&1';
+    $cmd = 'TMPDIR=' . escapeshellarg(CUSTOM_TMP_DIR) . ' ' . escapeshellarg($ytdlp_bin) . ' -U 2>&1';
     $output = shell_exec($cmd);
+    get_cached_component_versions(true);
     json_response(['code' => 0, 'message' => '更新指令执行完毕', 'data' => ['output' => $output]]);
 }

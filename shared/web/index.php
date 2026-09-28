@@ -1385,6 +1385,13 @@ endif;
         async function submitDownloadTask() {
             if (!currentParsedMedia) return;
 
+            const submitBtn = document.querySelector('button[onclick="submitDownloadTask()"]');
+            if (submitBtn) {
+                if (submitBtn.disabled) return;
+                submitBtn.disabled = true;
+                submitBtn.innerHTML = '正在加入队列...';
+            }
+
             const audioMode = document.getElementById('select-audio').value;
             const containerVal = (document.getElementById('select-container').value || 'mp4').toUpperCase();
             const platform = currentParsedMedia.platform || '网络媒体';
@@ -1436,6 +1443,11 @@ endif;
                 }
             } catch (e) {
                 showToast('提交失败: ' + e.message, 'danger');
+            } finally {
+                if (submitBtn) {
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = '立即加入下载队列';
+                }
             }
         }
 

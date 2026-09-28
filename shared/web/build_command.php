@@ -22,7 +22,7 @@ if (!$ytdlp_bin) {
     exit(1);
 }
 
-$cmd = escapeshellcmd($ytdlp_bin);
+$cmd = 'TMPDIR=' . escapeshellarg(CUSTOM_TMP_DIR) . ' ' . escapeshellcmd($ytdlp_bin);
 
 // FFmpeg location
 $ffmpeg_bin = get_binary_path('ffmpeg');
