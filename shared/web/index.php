@@ -1540,6 +1540,7 @@ endif;
         let taskCurrentPage = 1;
         const taskPageSize = 10;
         const expandedTaskIds = new Set();
+        const userCollapsedTaskIds = new Set();
         let cachedTasks = [];
 
         function setInputMode(mode) {
@@ -1844,9 +1845,6 @@ endif;
                 console.error('Fetch tasks error:', e);
             }
         }
-
-        let expandedTaskIds = new Set();
-        let userCollapsedTaskIds = new Set();
 
         function toggleTaskCollapse(taskId) {
             const card = document.querySelector(`.task-item[data-task-id="${taskId}"]`);

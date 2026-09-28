@@ -28,6 +28,21 @@ if (!is_dir(CUSTOM_TMP_DIR)) @mkdir(CUSTOM_TMP_DIR, 0777, true);
 putenv("TMPDIR=" . CUSTOM_TMP_DIR);
 $_ENV['TMPDIR'] = CUSTOM_TMP_DIR;
 
+// 强制初始化 UTF-8 语言环境，规避 Linux/QNAP C locale 下 escapeshellarg 吞噬中文文件名的致命缺陷
+@setlocale(LC_CTYPE, 'en_US.UTF-8', 'C.UTF-8', 'zh_CN.UTF-8', 'UTF-8');
+@setlocale(LC_ALL, 'en_US.UTF-8', 'C.UTF-8', 'zh_CN.UTF-8', 'UTF-8');
+putenv('LC_ALL=en_US.UTF-8');
+putenv('LANG=en_US.UTF-8');
+
+/**
+ * 免受操作系统 C locale 污染的安全命令行参数转义
+ * 严格按照 POSIX 单引号替换，百分之百保留 UTF-8 多字节中文路径
+ */
+function safe_escapeshellarg($arg) {
+    if ($arg === '' || $arg === null) return "''";
+    return "'" . str_replace("'", "'\\''", (string)$arg) . "'";
+}
+
 /**
  * QTS 官方登录会话继承鉴权
  */
@@ -649,7 +664,7 @@ function get_media_file_info($file_path) {
     $ffprobe = get_binary_path('ffprobe');
     $probe_data = null;
     if ($ffprobe) {
-        $cmd = $env_prefix . escapeshellarg($ffprobe) . ' -v error -print_format json -show_format -show_streams ' . escapeshellarg($file_path) . ' 2>/dev/null';
+        $cmd = $env_prefix . safe_escapeshellarg($ffprobe) . ' -v error -print_format json -show_format -show_streams ' . safe_escapeshellarg($file_path) . ' 2>/dev/null';
         $output = shell_exec($cmd);
         if (!empty($output)) {
             $probe_data = json_decode($output, true);
@@ -748,7 +763,7 @@ function get_media_file_info($file_path) {
     if (empty($res['video_streams']) && empty($res['audio_streams'])) {
         $ffmpeg = get_binary_path('ffmpeg');
         if ($ffmpeg) {
-            $cmd_ff = $env_prefix . escapeshellarg($ffmpeg) . ' -i ' . escapeshellarg($file_path) . ' 2>&1';
+            $cmd_ff = $env_prefix . safe_escapeshellarg($ffmpeg) . ' -i ' . safe_escapeshellarg($file_path) . ' 2>&1';
             $ff_out = shell_exec($cmd_ff);
             if (!empty($ff_out)) {
                 if (preg_match('/Duration:\s*(\d{2}):(\d{2}):(\d{2}(?:\.\d+)?)/i', $ff_out, $dm)) {
