@@ -166,10 +166,11 @@ case "$1" in
         if [ -x "$BIN_DIR/ffmpeg" ]; then
             local real_ff=$(readlink -f "$BIN_DIR/ffmpeg" 2>/dev/null || echo "$BIN_DIR/ffmpeg")
             local ff_ver_num=$("$BIN_DIR/ffmpeg" -version 2>/dev/null | head -n 1 | awk '{print $3}')
-            case "$real_ff" in
-                /usr/*|/mnt/*|/opt/*) ffmpeg_v="${ff_ver_num} (系统原生: $real_ff)" ;;
-                *) ffmpeg_v="${ff_ver_num} (内置纯静态)" ;;
-            esac
+            if [ -L "$BIN_DIR/ffmpeg" ] || [ "${real_ff#$QPKG_ROOT}" = "$real_ff" ]; then
+                ffmpeg_v="${ff_ver_num} (系统原生: $real_ff)"
+            else
+                ffmpeg_v="${ff_ver_num} (内置纯静态)"
+            fi
         fi
         echo "[$now_str] [COMPONENTS] yt-dlp: $ytdlp_v | FFmpeg: $ffmpeg_v" >> "$DAEMON_LOG"
         echo "[$now_str] [READY] Web 管理控制台与下载任务调度器已就绪。" >> "$DAEMON_LOG"

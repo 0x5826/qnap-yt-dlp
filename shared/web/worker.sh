@@ -66,6 +66,6 @@ echo "[$(date '+%Y-%m-%d %H:%M:%S')] Task finished with exit code $EC." >> "$OUT
 rm -f "$PID_FILE"
 
 # 任务结束，自动异步触发后续任务调度
-nohup "$PHP_BIN" "$WEB_DIR/scheduler.php" tick >/dev/null 2>&1 &
+"$PHP_BIN" "$WEB_DIR/scheduler.php" tick </dev/null >/dev/null 2>&1 &
 
 exit $EC

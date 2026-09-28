@@ -9,9 +9,12 @@ if (!checkQnapSession()) {
 
 $action = $_GET['action'] ?? $_POST['action'] ?? '';
 
-// 获取请求体 JSON
+// 获取请求体 JSON 或 POST 表单
 $raw_input = file_get_contents('php://input');
 $json_input = json_decode($raw_input, true) ?: [];
+if (empty($json_input) && !empty($_POST)) {
+    $json_input = $_POST;
+}
 
 switch ($action) {
     case 'status':
@@ -120,15 +123,19 @@ function handle_status() {
     $ffmpeg_source = '未安装';
     if ($ffmpeg_bin) {
         $real_path = @realpath($ffmpeg_bin) ?: $ffmpeg_bin;
-        $ff_out = shell_exec(escapeshellarg($ffmpeg_bin) . " -version 2>/dev/null | head -n 1");
-        if ($ff_out) {
-            preg_match('/version\s+([^\s]+)/i', $ff_out, $m);
-            $ffmpeg_ver = $m[1] ?? '已安装';
-            if (strpos($real_path, '/usr/') === 0 || strpos($real_path, '/mnt/') === 0 || strpos($real_path, '/opt/') === 0) {
-                $ffmpeg_source = '系统原生';
-            } else {
-                $ffmpeg_source = '内置静态';
-            }
+        $is_external = is_link($ffmpeg_bin) || (strpos($real_path, BASE_DIR) !== 0);
+        if ($is_external || strpos($real_path, 'MultimediaConsole') !== false || strpos($real_path, '/usr/') === 0 || strpos($real_path, '/mnt/') === 0 || strpos($real_path, '/opt/') === 0) {
+            $ffmpeg_source = '系统原生';
+        } else {
+            $ffmpeg_source = '内置静态';
+        }
+
+        $ff_cmd = 'export LD_LIBRARY_PATH="/usr/lib:/usr/local/lib:/usr/local/medialibrary/lib:/opt/lib:$LD_LIBRARY_PATH"; ' . escapeshellarg($ffmpeg_bin) . ' -version 2>&1 | head -n 1';
+        $ff_out = shell_exec($ff_cmd);
+        if ($ff_out && preg_match('/version\s+([^\s]+)/i', $ff_out, $m)) {
+            $ffmpeg_ver = $m[1];
+        } elseif (!empty($ff_out)) {
+            $ffmpeg_ver = '已安装';
         }
     }
 
@@ -140,9 +147,8 @@ function handle_status() {
     $daemon_pid = 0;
 
     $config = get_app_config();
-    $download_dir = $config['download_dir'] ?? '/share/Download/yt-dlp';
-    $free_space = @disk_free_space($download_dir) ?: 0;
-    $total_space = @disk_total_space($download_dir) ?: 0;
+    $download_dir = $config['download_dir'] ?? '/share/Download';
+    list($free_space, $total_space) = get_dir_disk_space($download_dir);
 
     $tasks = get_tasks();
     $stats = [
@@ -565,10 +571,11 @@ function handle_browse_shares() {
                 if ($d === '.' || $d === '..' || strpos($d, '.') === 0) continue;
                 $full = $root_share . '/' . $d;
                 if (is_dir($full)) {
+                    list($s_free, $s_total) = get_dir_disk_space($full);
                     $shares[] = [
                         'name' => $d,
                         'path' => $full,
-                        'free_space_str' => format_bytes(@disk_free_space($full) ?: 0)
+                        'free_space_str' => format_bytes($s_free)
                     ];
                 }
             }

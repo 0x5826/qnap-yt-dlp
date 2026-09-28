@@ -120,7 +120,7 @@ if ($active_count < $max_concurrent) {
             atomic_write_file($task_json_file, json_encode($task, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
 
             $worker_script = __DIR__ . '/worker.sh';
-            $cmd = "nohup " . escapeshellarg($worker_script) . " " . escapeshellarg($task_id) . " " . escapeshellarg($task_json_file) . " >/dev/null 2>&1 & echo $!";
+            $cmd = "/bin/sh " . escapeshellarg($worker_script) . " " . escapeshellarg($task_id) . " " . escapeshellarg($task_json_file) . " </dev/null >/dev/null 2>&1 & echo $!";
             $worker_pid = trim((string)shell_exec($cmd));
 
             $task['status'] = 'downloading';

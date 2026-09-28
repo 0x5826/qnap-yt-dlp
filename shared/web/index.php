@@ -349,6 +349,8 @@ endif;
             transition: all 0.2s ease;
             text-decoration: none;
             line-height: 1.4;
+            white-space: nowrap;
+            flex-shrink: 0;
         }
 
         .btn-outline {
@@ -946,8 +948,7 @@ endif;
         <div class="tab-bar">
             <button class="tab-btn active" onclick="switchTab('tab-parse')">新建下载任务</button>
             <button class="tab-btn" onclick="switchTab('tab-tasks')">任务调度队列 (<span id="task-badge">0</span>)</button>
-            <button class="tab-btn" onclick="switchTab('tab-config')">存储与全局参数</button>
-            <button class="tab-btn" onclick="switchTab('tab-cookies')">账号凭据 (Cookies)</button>
+            <button class="tab-btn" onclick="switchTab('tab-config')">全局配置</button>
             <button class="tab-btn" onclick="switchTab('tab-logs')">调度与运行日志</button>
         </div>
 
@@ -957,8 +958,8 @@ endif;
                 <div class="card-header">
                     <span class="card-title">解析媒体源链接</span>
                 </div>
-                <div style="display: flex; gap: 10px;">
-                    <input type="text" id="input-url" class="form-input" placeholder="输入视频或播放列表链接 (如 YouTube, Bilibili, Twitter, Vimeo 等)...">
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <input type="text" id="input-url" class="form-input" style="flex: 1; min-width: 0;" placeholder="输入视频或播放列表链接 (如 YouTube, Bilibili, Twitter, Vimeo 等)...">
                     <button class="btn btn-primary" id="btn-parse" onclick="parseUrl()">
                         <span id="btn-parse-text">解析媒体</span>
                     </button>
@@ -1012,14 +1013,13 @@ endif;
                                 </select>
                             </div>
                             <div class="form-group">
-                                <label class="form-label">
-                                    存储目标路径 (QNAP 共享目录)
-                                    <span id="target-dir-badge" style="color: #38bdf8; font-size: 11px; margin-left: 6px;"></span>
+                                <label class="form-label" style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span>存储目标路径 (QNAP 共享目录)<span id="target-dir-badge" style="color: #38bdf8; font-size: 11px; margin-left: 6px;"></span></span>
+                                    <a href="javascript:void(0)" onclick="setAsDefaultDir()" style="font-size: 11px; color: #38bdf8; text-decoration: none; cursor: pointer;">设为默认目录</a>
                                 </label>
                                 <div style="display: flex; gap: 8px;">
-                                    <input type="text" id="target-dir" class="form-input" placeholder="/share/Download/yt-dlp">
+                                    <input type="text" id="target-dir" class="form-input" style="flex: 1; min-width: 0;" placeholder="/share/Download">
                                     <button class="btn btn-outline btn-sm" onclick="browseShares('task')">选择共享卷</button>
-                                    <button class="btn btn-outline btn-sm" style="white-space: nowrap;" onclick="setAsDefaultDir()">设为默认目录</button>
                                 </div>
                             </div>
                         </div>
@@ -1065,7 +1065,7 @@ endif;
             </div>
         </div>
 
-        <!-- 选项卡 3: 存储与全局参数 -->
+        <!-- 选项卡 3: 全局配置 (包含存储与核心参数、网络代理、站点 Cookies 凭据) -->
         <div id="tab-config" class="tab-content">
             <div class="card">
                 <div class="card-header">
@@ -1075,7 +1075,7 @@ endif;
                     <div class="form-group">
                         <label class="form-label">默认下载存储目录 (QNAP 绝对路径，新任务将自动以此为目标)</label>
                         <div style="display: flex; gap: 8px;">
-                            <input type="text" id="cfg-download-dir" class="form-input" placeholder="/share/Download/yt-dlp">
+                            <input type="text" id="cfg-download-dir" class="form-input" style="flex: 1; min-width: 0;" placeholder="/share/Download">
                             <button class="btn btn-outline btn-sm" onclick="browseShares('config')">选择共享卷</button>
                         </div>
                     </div>
@@ -1112,19 +1112,17 @@ endif;
                     <button class="btn btn-outline" onclick="updateYtDlp()">检查并更新 yt-dlp 核心组件</button>
                 </div>
             </div>
-        </div>
 
-        <!-- 选项卡 4: 账号凭据 (Cookies) -->
-        <div id="tab-cookies" class="tab-content">
-            <div class="card">
+            <!-- 嵌入卡片: 站点账号凭据 (Cookies) -->
+            <div class="card" style="margin-top: 20px;">
                 <div class="card-header">
-                    <span class="card-title">Netscape 格式 Cookies 凭据管理</span>
+                    <span class="card-title">站点账号凭据管理 (Netscape Cookies)</span>
                 </div>
                 <p style="color: var(--text-muted); font-size: 12px; margin-bottom: 12px;">
                     适用于解析需要会员登录、受年龄限制或防止 1080P+ 防盗链限制的媒体源。请将浏览器导出的标准 Netscape 格式 cookies.txt 文本内容粘贴于下方并保存。
                 </p>
                 <div class="form-group">
-                    <textarea id="cookies-content" class="form-textarea" rows="12" placeholder="# Netscape HTTP Cookie File&#10;# 粘贴 cookies.txt 内容..."></textarea>
+                    <textarea id="cookies-content" class="form-textarea" rows="8" placeholder="# Netscape HTTP Cookie File&#10;# 粘贴 cookies.txt 内容..."></textarea>
                 </div>
                 <div style="display: flex; gap: 12px;">
                     <button class="btn btn-primary" onclick="saveCookies()">保存凭据文件</button>
@@ -1199,7 +1197,6 @@ endif;
                 fetchTasks();
             } else if (tabId === 'tab-config') {
                 loadConfig();
-            } else if (tabId === 'tab-cookies') {
                 loadCookies();
             } else if (tabId === 'tab-logs') {
                 fetchDaemonLog();
@@ -1559,7 +1556,7 @@ endif;
         }
 
         function selectSharePath(p) {
-            const finalPath = p + '/yt-dlp';
+            const finalPath = p;
             if (shareTargetInputType === 'config') {
                 document.getElementById('cfg-download-dir').value = finalPath;
             } else {
@@ -1612,7 +1609,7 @@ endif;
                     document.getElementById('cfg-proxy').value = c.proxy || '';
                     document.getElementById('cfg-custom-args').value = c.custom_args || '';
 
-                    const defDir = c.download_dir || '/share/Download/yt-dlp';
+                    const defDir = c.download_dir || '/share/Download';
                     document.getElementById('target-dir').value = defDir;
                     document.getElementById('target-dir-badge').textContent = `(默认: ${defDir})`;
                 }

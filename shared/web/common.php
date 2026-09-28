@@ -125,7 +125,7 @@ function atomic_write_file($file_path, $content, $perms = 0666) {
 function get_app_config() {
     $default = [
         'autostart' => 1,
-        'download_dir' => '/share/Download/yt-dlp',
+        'download_dir' => '/share/Download',
         'filename_template' => '%(title)s [%(id)s].%(ext)s',
         'max_concurrent_tasks' => 2,
         'rate_limit' => '',
@@ -264,13 +264,72 @@ function get_php_binary() {
 }
 
 /**
+ * 健壮探测目录所在磁盘卷的容量与可用空间
+ * 支持子目录尚未创建时的自愈与祖先挂载点回溯探测，杜绝 0 B 假死
+ */
+function get_dir_disk_space($path) {
+    $target = rtrim(trim($path ?: ''), '/');
+    if (empty($target)) {
+        $target = '/share';
+    }
+
+    // 1. 若路径已存在且可读，直接获取
+    if (file_exists($target)) {
+        $free = @disk_free_space($target);
+        $total = @disk_total_space($target);
+        if ($free !== false && $total !== false && $total > 0) {
+            return [$free, $total];
+        }
+    }
+
+    // 2. 若不存在，尝试自动创建
+    if (@mkdir($target, 0777, true)) {
+        $free = @disk_free_space($target);
+        $total = @disk_total_space($target);
+        if ($free !== false && $total !== false && $total > 0) {
+            return [$free, $total];
+        }
+    }
+
+    // 3. 逐级向上回溯存在的父级共享卷或挂载点
+    $curr = $target;
+    while ($curr && $curr !== '/' && $curr !== '.') {
+        $curr = dirname($curr);
+        if (file_exists($curr)) {
+            $free = @disk_free_space($curr);
+            $total = @disk_total_space($curr);
+            if ($free !== false && $total !== false && $total > 0) {
+                return [$free, $total];
+            }
+        }
+    }
+
+    // 4. Fallback 探测常见 QNAP 挂载卷
+    $fallbacks = ['/share/Download', '/share/CACHEDEV1_DATA', '/share/CACHEDEV2_DATA', '/share/Public', '/share', '/'];
+    foreach ($fallbacks as $fb) {
+        if (file_exists($fb)) {
+            $free = @disk_free_space($fb);
+            $total = @disk_total_space($fb);
+            if ($free !== false && $total !== false && $total > 0) {
+                return [$free, $total];
+            }
+        }
+    }
+
+    return [0, 0];
+}
+
+/**
  * 事件驱动按需调度器唤醒
  * 异步执行 scheduler.php tick，不阻塞当前请求，实现零常驻后台开箱即用
+ * 严禁依赖 nohup（QNAP 系统默认不存在 nohup）
  */
 function trigger_scheduler_tick() {
     $script = __DIR__ . '/scheduler.php';
     if (file_exists($script)) {
         $php = get_php_binary();
-        @shell_exec("nohup " . escapeshellarg($php) . " " . escapeshellarg($script) . " tick >/dev/null 2>&1 &");
+        $cmd = escapeshellarg($php) . " " . escapeshellarg($script) . " tick </dev/null >/dev/null 2>&1 &";
+        @shell_exec($cmd);
     }
 }
+
