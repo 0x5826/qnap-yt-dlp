@@ -1,0 +1,39 @@
+# Python venv & caches
+venv/
+__pycache__/
+*.pyc
+
+# Local dev-test directory (mandatory non-commit)
+dev-test/
+
+# Build artifacts
+build/
+*.qpkg
+*.qpkg.md5
+*.tar.gz
+*.zip
+
+# Binaries downloaded locally (fetch via scripts/download_binaries.sh in CI or setup)
+x86_64/yt-dlp
+x86_64/ffmpeg
+x86_64/ffprobe
+arm_64/yt-dlp
+arm_64/ffmpeg
+arm_64/ffprobe
+shared/bin/*
+!shared/bin/.gitkeep
+!x86_64/.gitkeep
+!arm_64/.gitkeep
+
+# Runtime files & secrets
+shared/conf/*.lock
+shared/conf/cookies.txt
+shared/conf/tasks.json
+shared/conf/logs/*.log
+*.pid
+
+# OS & Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

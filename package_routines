@@ -1,0 +1,78 @@
+######################################################################
+# 卸载清理 (PKG_MAIN_REMOVE)
+######################################################################
+PKG_MAIN_REMOVE="{
+    # 1. 彻底强杀所有存活的调度器及下载进程
+    killall -9 ytdlp_daemon 2>/dev/null || true
+    pkill -9 -f 'ytdlp.sh daemon' 2>/dev/null || true
+    pkill -9 -f 'yt-dlp' 2>/dev/null || true
+
+    # 2. 清理系统级 CLI 软链接
+    rm -f /usr/sbin/yt-dlp /usr/bin/yt-dlp /usr/local/bin/yt-dlp 2>/dev/null
+
+    # 3. 清理 Apache Web 软链接
+    rm -f /share/Web/ytdlp /share/Qweb/ytdlp /share/CACHEDEV1_DATA/Web/ytdlp 2>/dev/null
+}"
+
+######################################################################
+# 安装/升级前初始化 (pkg_init)：原子热备份
+######################################################################
+pkg_init()
+{
+    local cur_path=""
+    if [ -x "/sbin/getcfg" ]; then
+        cur_path=$(/sbin/getcfg ytdlp Install_Path -f /etc/config/qpkg.conf 2>/dev/null)
+    fi
+    [ -z "$cur_path" ] && cur_path="$SYS_QPKG_DIR"
+
+    rm -rf /tmp/.ytdlp_upgrade_backup 2>/dev/null
+    if [ -n "$cur_path" ] && [ -d "$cur_path/conf" ]; then
+        if [ "$(ls -A "$cur_path/conf" 2>/dev/null)" ]; then
+            mkdir -p /tmp/.ytdlp_upgrade_backup
+            cp -rf "$cur_path/conf/"* /tmp/.ytdlp_upgrade_backup/ 2>/dev/null
+        fi
+    fi
+}
+
+######################################################################
+# 安装/升级后处理 (pkg_post_install)：完整性恢复与权限加固
+######################################################################
+pkg_post_install()
+{
+    local target_path="$SYS_QPKG_DIR"
+    if [ -z "$target_path" ] || [ ! -d "$target_path" ]; then
+        if [ -x "/sbin/getcfg" ]; then
+            target_path=$(/sbin/getcfg ytdlp Install_Path -f /etc/config/qpkg.conf 2>/dev/null)
+        fi
+    fi
+
+    mkdir -p "$target_path/conf"
+
+    # 1. 优先还原备份配置，并执行非空完整性校验
+    if [ -d "/tmp/.ytdlp_upgrade_backup" ]; then
+        cp -rf /tmp/.ytdlp_upgrade_backup/* "$target_path/conf/" 2>/dev/null
+        if [ -d "$target_path/conf" ] && [ "$(ls -A "$target_path/conf" 2>/dev/null)" ]; then
+            rm -rf /tmp/.ytdlp_upgrade_backup 2>/dev/null
+        fi
+    fi
+    chmod -Rf 755 "$target_path/conf" 2>/dev/null
+
+    # 2. 全量分发高清图标至 QTS 现代桌面与 App Center 图片库
+    local icon_src="$target_path/shared/icons"
+    [ ! -d "$icon_src" ] && icon_src="$target_path/icons"
+    if [ -d "$icon_src" ]; then
+        for sys_icon_dir in /home/httpd/RSS/images /home/httpd/cgi-bin/images /home/httpd/v3_images; do
+            if [ -d "$sys_icon_dir" ]; then
+                cp -f "$icon_src"/* "$sys_icon_dir/" 2>/dev/null
+            fi
+        done
+        touch /etc/config/qpkg.conf 2>/dev/null
+    fi
+
+    # 3. 权限修正与软链接初始化
+    chown -R admin:administrators "$target_path" 2>/dev/null
+    chmod +x "$target_path/x86_64/yt-dlp" "$target_path/arm_64/yt-dlp" "$target_path/ytdlp.sh" "$target_path/shared/ytdlp.sh" 2>/dev/null || true
+    chmod +x "$target_path/web/worker.sh" "$target_path/shared/web/worker.sh" 2>/dev/null || true
+    [ -f "$target_path/x86_64/ffmpeg" ] && chmod +x "$target_path/x86_64/ffmpeg" "$target_path/x86_64/ffprobe" 2>/dev/null || true
+    [ -f "$target_path/arm_64/ffmpeg" ] && chmod +x "$target_path/arm_64/ffmpeg" "$target_path/arm_64/ffprobe" 2>/dev/null || true
+}

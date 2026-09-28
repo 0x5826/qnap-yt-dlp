@@ -1,0 +1,78 @@
+name: Build & Release QPKG
+
+on:
+  push:
+    branches: [ "main", "master" ]
+    tags: [ "v*" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python Dependencies & Generate Icons
+        run: |
+          python3 -m pip install --upgrade pip pillow
+          python3 scripts/generate_icons.py
+
+      - name: Install QDK Dependencies & Compile qpkg_encrypt
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential p7zip-full bc curl unzip rsync xz-utils
+          wget -q https://github.com/qnap-dev/QDK/archive/refs/tags/v2.3.14.tar.gz
+          tar -xzf v2.3.14.tar.gz
+          gcc -O2 -o qpkg_encrypt QDK-2.3.14/src/qpkg_encrypt.c
+          sudo cp qpkg_encrypt /usr/local/bin/ && sudo cp qpkg_encrypt /usr/bin/ && sudo cp qpkg_encrypt /bin/
+          sudo mkdir -p /usr/share/QDK /etc/config
+          sudo cp -rf QDK-2.3.14/shared/* /usr/share/QDK/
+          sudo chmod +x /usr/share/QDK/bin/*
+          sudo ln -sf /usr/share/QDK/bin/qbuild /usr/local/bin/qbuild
+          sudo cp /usr/share/QDK/qdk.conf /etc/config/qdk.conf
+          sudo sed -i 's|^QDK_PATH_P=.*|QDK_PATH_P=/usr/share|' /etc/config/qdk.conf
+          sudo sed -i 's|^QDK_PATH=.*|QDK_PATH=/usr/share/QDK|' /etc/config/qdk.conf
+
+      - name: Fetch Upstream Standalone Binaries
+        run: |
+          chmod +x scripts/download_binaries.sh
+          ./scripts/download_binaries.sh
+
+      - name: Build QPKG Packages
+        run: |
+          mkdir -p build
+          qbuild --build-dir build
+
+      - name: Calculate Checksums
+        run: |
+          cd build
+          for f in *.qpkg; do
+            [ -f "$f" ] && md5sum "$f" > "$f.md5"
+          done
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: qnap-ytdlp-packages
+          path: build/*.qpkg*
+
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            build/*.qpkg
+            build/*.qpkg.md5
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

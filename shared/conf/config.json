@@ -1,0 +1,14 @@
+{
+  "autostart": 1,
+  "download_dir": "/share/Download/yt-dlp",
+  "filename_template": "%(title)s [%(id)s].%(ext)s",
+  "max_concurrent_tasks": 2,
+  "rate_limit": "",
+  "proxy": "",
+  "embed_thumbnail": true,
+  "embed_metadata": true,
+  "default_video_quality": "bestvideo+bestaudio/best",
+  "default_container": "mp4",
+  "default_subtitles": "none",
+  "custom_args": ""
+}
