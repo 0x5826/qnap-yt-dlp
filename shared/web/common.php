@@ -191,6 +191,14 @@ function get_binary_path($name) {
         BIN_DIR . '/' . $name,
         BASE_DIR . '/' . $name,
         BASE_DIR . '/' . $arch . '/' . $name,
+        '/share/CACHEDEV1_DATA/.qpkg/ytdlp/bin/' . $name,
+        '/share/CACHEDEV1_DATA/.qpkg/ytdlp/' . $arch . '/' . $name,
+        '/share/CACHEDEV1_DATA/.qpkg/ytdlp/' . $name,
+        '/share/CACHEDEV1_DATA/.qpkg/ffmpeg/bin/' . $name,
+        '/share/CACHEDEV1_DATA/.qpkg/ffmpeg/' . $name,
+        '/share/CACHEDEV1_DATA/.qpkg/CodexPack/opt/ffmpeg/' . $name,
+        '/mnt/ext/opt/medialibrary/bin/' . $name,
+        '/mnt/ext/opt/ffmpeg/' . $name,
         '/usr/bin/' . $name,
         '/usr/local/bin/' . $name,
         '/opt/bin/' . $name
@@ -608,7 +616,7 @@ function format_duration_human($seconds) {
 }
 
 /**
- * 使用 ffprobe 获取音视频文件的详细结构化规格（分辨率、码率、编解码器、音轨、字幕等）
+ * 使用 ffprobe 及 ffmpeg 双引擎获取音视频文件的详细结构化规格（分辨率、码率、编解码器、音轨、字幕等）
  */
 function get_media_file_info($file_path) {
     if (!file_exists($file_path) || !is_readable($file_path)) {
@@ -618,16 +626,6 @@ function get_media_file_info($file_path) {
     $file_size = @filesize($file_path);
     $file_name = basename($file_path);
     $ext = strtolower(pathinfo($file_path, PATHINFO_EXTENSION));
-
-    $ffprobe = get_binary_path('ffprobe');
-    $probe_data = null;
-    if ($ffprobe) {
-        $cmd = escapeshellarg($ffprobe) . ' -v quiet -print_format json -show_format -show_streams ' . escapeshellarg($file_path) . ' 2>/dev/null';
-        $output = shell_exec($cmd);
-        if (!empty($output)) {
-            $probe_data = json_decode($output, true);
-        }
-    }
 
     $res = [
         'file_name' => $file_name,
@@ -642,6 +640,21 @@ function get_media_file_info($file_path) {
         'audio_streams' => [],
         'subtitle_streams' => []
     ];
+
+    $tmp_dir = defined('CUSTOM_TMP_DIR') ? CUSTOM_TMP_DIR : '/tmp';
+    if (!is_dir($tmp_dir)) @mkdir($tmp_dir, 0755, true);
+    $env_prefix = 'TMPDIR=' . escapeshellarg($tmp_dir) . ' ';
+
+    // 引擎 1: ffprobe JSON 解析
+    $ffprobe = get_binary_path('ffprobe');
+    $probe_data = null;
+    if ($ffprobe) {
+        $cmd = $env_prefix . escapeshellarg($ffprobe) . ' -v error -print_format json -show_format -show_streams ' . escapeshellarg($file_path) . ' 2>/dev/null';
+        $output = shell_exec($cmd);
+        if (!empty($output)) {
+            $probe_data = json_decode($output, true);
+        }
+    }
 
     if ($probe_data && !empty($probe_data['format'])) {
         $fmt = $probe_data['format'];
@@ -727,6 +740,118 @@ function get_media_file_info($file_path) {
                     'language' => $lang,
                     'title' => $title ?: '--'
                 ];
+            }
+        }
+    }
+
+    // 引擎 2: 若 ffprobe 缺失或未能解析出有效流，自动回退调用 ffmpeg -i 深度解析
+    if (empty($res['video_streams']) && empty($res['audio_streams'])) {
+        $ffmpeg = get_binary_path('ffmpeg');
+        if ($ffmpeg) {
+            $cmd_ff = $env_prefix . escapeshellarg($ffmpeg) . ' -i ' . escapeshellarg($file_path) . ' 2>&1';
+            $ff_out = shell_exec($cmd_ff);
+            if (!empty($ff_out)) {
+                if (preg_match('/Duration:\s*(\d{2}):(\d{2}):(\d{2}(?:\.\d+)?)/i', $ff_out, $dm)) {
+                    $sec = intval($dm[1]) * 3600 + intval($dm[2]) * 60 + floatval($dm[3]);
+                    $res['duration_sec'] = round($sec, 1);
+                    $res['duration_str'] = format_duration_human(intval($sec));
+                }
+                if (preg_match('/bitrate:\s*(\d+)\s*kb\/s/i', $ff_out, $bm)) {
+                    $res['bit_rate_str'] = number_format(intval($bm[1])) . ' kbps';
+                }
+                if (preg_match('/Input #0,\s*([^,]+),/i', $ff_out, $fm)) {
+                    $res['format_name'] = strtoupper(trim($fm[1]));
+                }
+
+                $ff_lines = explode("\n", $ff_out);
+                foreach ($ff_lines as $lidx => $line) {
+                    $line_trim = trim($line);
+                    if (preg_match('/Stream #(\d+:\d+)(?:\[0x[0-9a-fA-F]+\])?(?:\(([a-zA-Z0-9_-]+)\))?:\s*(Video|Audio|Subtitle):\s*(.*)/i', $line_trim, $sm)) {
+                        $st_idx = $sm[1];
+                        $st_lang = !empty($sm[2]) ? $sm[2] : 'und';
+                        $st_type = strtolower($sm[3]);
+                        $st_rest = $sm[4];
+
+                        $st_title = '';
+                        for ($ti = $lidx + 1; $ti < min(count($ff_lines), $lidx + 6); $ti++) {
+                            if (strpos($ff_lines[$ti], 'Stream #') !== false) break;
+                            if (preg_match('/^\s*title\s*:\s*(.+)$/i', $ff_lines[$ti], $tm)) {
+                                $st_title = trim($tm[1]);
+                                break;
+                            }
+                        }
+
+                        $parts = explode(',', $st_rest);
+                        $codec_raw = trim($parts[0] ?? '未知');
+
+                        if ($st_type === 'video') {
+                            $w_h = '--';
+                            if (preg_match('/\b(\d{2,5}x\d{2,5})\b/', $st_rest, $whm)) {
+                                $w_h = str_replace('x', ' × ', $whm[1]);
+                            }
+                            $fps_str = '--';
+                            if (preg_match('/(\d+(?:\.\d+)?)\s*fps/i', $st_rest, $fpsm)) {
+                                $fps_str = $fpsm[1] . ' fps';
+                            }
+                            $v_br = '--';
+                            if (preg_match('/(\d+)\s*kb\/s/i', $st_rest, $brm)) {
+                                $v_br = number_format(intval($brm[1])) . ' kbps';
+                            }
+                            $dar_str = '--';
+                            if (preg_match('/DAR\s*(\d+:\d+)/i', $st_rest, $darm)) {
+                                $dar_str = $darm[1];
+                            }
+                            $pix_str = '--';
+                            if (preg_match('/\b(yuv\w+|rgb\w+|bgr\w+)\b/i', $st_rest, $pixm)) {
+                                $pix_str = $pixm[1];
+                            }
+
+                            $res['video_streams'][] = [
+                                'index' => $st_idx,
+                                'codec' => strtoupper($codec_raw),
+                                'resolution' => $w_h,
+                                'fps' => $fps_str,
+                                'bit_rate' => $v_br,
+                                'pix_fmt' => $pix_str,
+                                'aspect_ratio' => $dar_str
+                            ];
+                        } elseif ($st_type === 'audio') {
+                            $sr_str = '--';
+                            if (preg_match('/(\d+)\s*Hz/i', $st_rest, $srm)) {
+                                $sr_str = $srm[1] . ' Hz';
+                            }
+                            $ch_str = '--';
+                            if (preg_match('/\b(stereo|mono|5\.1\(side\)|5\.1|7\.1|\d+\s*channels?)\b/i', $st_rest, $chm)) {
+                                $ch_raw = strtolower($chm[1]);
+                                if ($ch_raw === 'stereo') $ch_str = '2 声道 (stereo)';
+                                elseif ($ch_raw === 'mono') $ch_str = '1 声道 (mono)';
+                                elseif (strpos($ch_raw, '5.1') !== false) $ch_str = '6 声道 (5.1 环绕声)';
+                                else $ch_str = $ch_raw;
+                            }
+                            $a_br = '--';
+                            if (preg_match('/(\d+)\s*kb\/s/i', $st_rest, $brm)) {
+                                $a_br = number_format(intval($brm[1])) . ' kbps';
+                            }
+
+                            $res['audio_streams'][] = [
+                                'index' => $st_idx,
+                                'codec' => strtoupper($codec_raw),
+                                'channels' => $ch_str,
+                                'sample_rate' => $sr_str,
+                                'bit_rate' => $a_br,
+                                'language' => $st_lang,
+                                'title' => $st_title
+                            ];
+                        } elseif ($st_type === 'subtitle') {
+                            $res['subtitle_streams'][] = [
+                                'index' => $st_idx,
+                                'codec' => $codec_raw,
+                                'language' => $st_lang,
+                                'title' => $st_title ?: '--'
+                            ];
+                        }
+                    }
+                }
             }
         }
     }

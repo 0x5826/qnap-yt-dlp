@@ -76,20 +76,24 @@ foreach ($tasks as $idx => &$task) {
                         $task['status'] = 'merging';
                         $task['target_file'] = $m[1];
                         $tasks_updated = true;
-                        if (strpos($task['title'], '批量下载任务 - ') === 0) {
+                        if (strpos($task['title'], '批量任务') !== false || strpos($task['title'], '批量下载任务') !== false) {
                             $fname = basename(trim($m[1]));
                             $clean_t = preg_replace('/(\.f[0-9]+)?\.[a-zA-Z0-9]+$/', '', $fname);
                             if (!empty($clean_t)) {
-                                $task['title'] = $clean_t;
+                                $plat = $task['platform'] ?: '网络媒体';
+                                $spec = $task['media_spec'] ?: '';
+                                $task['title'] = !empty($spec) ? "{$plat} - {$clean_t} - {$spec}" : "{$plat} - {$clean_t}";
                             }
                         }
                     } elseif (preg_match('/\[download\] Destination:\s*(.+)$/i', $line, $m)) {
                         $task['dest_file'] = trim($m[1]);
-                        if (strpos($task['title'], '批量下载任务 - ') === 0) {
+                        if (strpos($task['title'], '批量任务') !== false || strpos($task['title'], '批量下载任务') !== false) {
                             $fname = basename(trim($m[1]));
                             $clean_t = preg_replace('/(\.f[0-9]+)?\.[a-zA-Z0-9]+$/', '', $fname);
                             if (!empty($clean_t)) {
-                                $task['title'] = $clean_t;
+                                $plat = $task['platform'] ?: '网络媒体';
+                                $spec = $task['media_spec'] ?: '';
+                                $task['title'] = !empty($spec) ? "{$plat} - {$clean_t} - {$spec}" : "{$plat} - {$clean_t}";
                                 $tasks_updated = true;
                             }
                         }
@@ -112,11 +116,13 @@ foreach ($tasks as $idx => &$task) {
                 // 深度扫描输出日志获取最终产物路径与元数据
                 $meta = inspect_task_log($output_log);
                 $target_file = $meta['target_file'] ?: ($task['target_file'] ?? $meta['dest_file'] ?? $task['dest_file'] ?? '');
-                if (!empty($target_file) && strpos($task['title'], '批量下载任务 - ') === 0) {
+                if (!empty($target_file) && (strpos($task['title'], '批量任务') !== false || strpos($task['title'], '批量下载任务') !== false)) {
                     $fname = basename($target_file);
                     $clean_t = preg_replace('/(\.f[0-9]+)?\.[a-zA-Z0-9]+$/', '', $fname);
                     if (!empty($clean_t)) {
-                        $task['title'] = $clean_t;
+                        $plat = $task['platform'] ?: '网络媒体';
+                        $spec = $task['media_spec'] ?: '';
+                        $task['title'] = !empty($spec) ? "{$plat} - {$clean_t} - {$spec}" : "{$plat} - {$clean_t}";
                     }
                 }
 

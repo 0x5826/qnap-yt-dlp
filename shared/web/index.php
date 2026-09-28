@@ -1231,7 +1231,7 @@ endif;
                 <!-- 统一下载参数设置面板 -->
                 <div id="download-params-box" style="display: none; margin-top: 20px;">
                     <div style="font-size: 13px; font-weight: 600; color: #fff; margin-bottom: 12px; display: flex; align-items: center; gap: 6px;">
-                        <span>⚙️ 下载参数设置</span>
+                        <span>下载参数设置</span>
                     </div>
 
                     <div class="form-row">
@@ -1436,7 +1436,10 @@ endif;
         <div class="modal-card" style="max-width: 820px; max-height: 85vh;">
             <div class="modal-header">
                 <span class="card-title" id="media-modal-title">媒体详细规格</span>
-                <button class="btn btn-outline btn-sm" onclick="closeMediaInfoModal()">关闭</button>
+                <div style="display: flex; gap: 8px;">
+                    <button class="btn btn-outline btn-sm" id="btn-refresh-media-info" onclick="refreshCurrentMediaInfo()">重新检测</button>
+                    <button class="btn btn-outline btn-sm" onclick="closeMediaInfoModal()">关闭</button>
+                </div>
             </div>
             <div class="modal-body" id="media-modal-body" style="background: var(--bg-card); padding: 20px;">
                 <div style="text-align: center; color: var(--text-muted); padding: 40px 0;">正在检索并分析媒体规格...</div>
@@ -1603,7 +1606,7 @@ endif;
                 statsText.textContent = `已识别: ${urls.length} 个有效链接`;
             }
             if (submitBtn) {
-                submitBtn.innerHTML = `🚀 批量加入下载队列 (已识别 ${urls.length} 个链接)`;
+                submitBtn.innerHTML = `批量加入下载队列 (已识别 ${urls.length} 个链接)`;
             }
         }
 
@@ -1711,7 +1714,7 @@ endif;
             const containerVal = (document.getElementById('select-container').value || 'mp4').toUpperCase();
             const formatVal = document.getElementById('select-quality').value || 'bestvideo+bestaudio/best';
             const qualityText = document.getElementById('select-quality').selectedOptions[0]?.textContent || '最佳画质';
-            const cleanQualityText = qualityText.replace(/\s*\(自动音画合并.*?\)/g, '').replace(/\s*\[.*?\]/g, '').trim();
+            const cleanQualityText = qualityText.replace(/\s*\(.*?\)/g, '').replace(/\s*\[.*?\]/g, '').trim();
             const subtitlesVal = document.getElementById('select-subtitles').value || 'all';
             const embedSubs = document.getElementById('check-embed-subs').checked;
             const embedThumb = document.getElementById('check-embed-thumb').checked;
@@ -1842,11 +1845,19 @@ endif;
             }
         }
 
+        let expandedTaskIds = new Set();
+        let userCollapsedTaskIds = new Set();
+
         function toggleTaskCollapse(taskId) {
-            if (expandedTaskIds.has(taskId)) {
-                expandedTaskIds.delete(taskId);
-            } else {
+            const card = document.querySelector(`.task-item[data-task-id="${taskId}"]`);
+            const isCurrentlyCollapsed = card ? card.classList.contains('collapsed') : false;
+
+            if (isCurrentlyCollapsed) {
+                userCollapsedTaskIds.delete(taskId);
                 expandedTaskIds.add(taskId);
+            } else {
+                expandedTaskIds.delete(taskId);
+                userCollapsedTaskIds.add(taskId);
             }
             renderTasks(cachedTasks);
         }
@@ -1885,11 +1896,24 @@ endif;
                 const globalIdx = startIndex + pageIdx;
                 const item = document.createElement('div');
                 item.className = 'task-item';
+                item.dataset.taskId = t.id;
 
-                // 折叠逻辑：当任务总数 > 1 时，除全局第 1 个任务（最新任务）或被用户手动展开的任务外，默认紧凑折叠
-                const isFirstTask = (globalIdx === 0);
-                const isExplicitlyExpanded = expandedTaskIds.has(t.id);
-                const shouldCollapse = (totalTasks > 1) && !isFirstTask && !isExplicitlyExpanded;
+                // 折叠逻辑：
+                // 1. 多个下载中/合并中的活跃任务 (downloading / merging) 默认绝对不折叠，实时显示进度
+                // 2. 非活跃任务（已完成、排队、失败、已暂停）：除全局最新任务（第1个）外，默认折叠收拢
+                // 3. 用户手动点击折叠/展开的状态优先级最高
+                const isActive = (t.status === 'downloading' || t.status === 'merging');
+                const isUserCollapsed = userCollapsedTaskIds.has(t.id);
+                const isUserExpanded = expandedTaskIds.has(t.id);
+
+                let shouldCollapse = false;
+                if (totalTasks > 1) {
+                    if (isActive) {
+                        shouldCollapse = isUserCollapsed;
+                    } else {
+                        shouldCollapse = isUserCollapsed || (globalIdx !== 0 && !isUserExpanded);
+                    }
+                }
 
                 if (shouldCollapse) {
                     item.classList.add('collapsed');
@@ -2065,17 +2089,36 @@ endif;
             document.getElementById('modal-log').classList.remove('show');
         }
 
-        async function viewMediaInfo(taskId) {
+        let currentMediaInfoTaskId = null;
+
+        async function viewMediaInfo(taskId, forceRefresh = false) {
+            currentMediaInfoTaskId = taskId;
             const modal = document.getElementById('modal-media-info');
             const body = document.getElementById('media-modal-body');
             const titleEl = document.getElementById('media-modal-title');
-            titleEl.textContent = '媒体详细信息';
-            body.innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 40px 0;">正在检索并分析媒体规格...</div>';
+            const btnRefresh = document.getElementById('btn-refresh-media-info');
+
+            if (btnRefresh) {
+                btnRefresh.disabled = true;
+                btnRefresh.textContent = '检测中...';
+            }
+
+            if (!forceRefresh) {
+                titleEl.textContent = '媒体详细规格';
+                body.innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 40px 0;">正在检索并分析媒体规格...</div>';
+            }
             modal.classList.add('show');
 
             try {
-                const res = await fetch(`api.php?action=get_media_info&task_id=${encodeURIComponent(taskId)}`);
+                const url = `api.php?action=get_media_info&task_id=${encodeURIComponent(taskId)}${forceRefresh ? '&refresh=1' : ''}`;
+                const res = await fetch(url);
                 const json = await res.json();
+
+                if (btnRefresh) {
+                    btnRefresh.disabled = false;
+                    btnRefresh.textContent = '重新检测';
+                }
+
                 if (json.code !== 0) {
                     body.innerHTML = `
                         <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 6px; padding: 16px; color: #ef4444; font-size: 13px;">
@@ -2192,11 +2235,21 @@ endif;
 
                 body.innerHTML = html;
             } catch (err) {
+                if (btnRefresh) {
+                    btnRefresh.disabled = false;
+                    btnRefresh.textContent = '重新检测';
+                }
                 body.innerHTML = `
                     <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 6px; padding: 16px; color: #ef4444; font-size: 13px;">
                         <strong>请求失败:</strong> ${escapeHtml(err.message)}
                     </div>
                 `;
+            }
+        }
+
+        function refreshCurrentMediaInfo() {
+            if (currentMediaInfoTaskId) {
+                viewMediaInfo(currentMediaInfoTaskId, true);
             }
         }
 

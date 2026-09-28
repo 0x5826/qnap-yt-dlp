@@ -447,6 +447,7 @@ function handle_add_batch_tasks($input) {
         if (empty($url) || !filter_var($url, FILTER_VALIDATE_URL)) continue;
 
         $task_id = 'task_' . date('ymdHis', $now) . '_' . substr(md5(uniqid('', true) . $idx), 0, 4);
+        $platform = get_media_platform_name([], $url);
         $format_id = $input['format_id'] ?? $config['default_video_quality'];
         $container = $input['container'] ?? $config['default_container'];
 
@@ -455,11 +456,14 @@ function handle_add_batch_tasks($input) {
             $spec_desc = strtoupper($input['audio_format'] ?? 'MP3') . ' · 纯音频';
         }
 
+        // 统一标准任务名称：视频平台 - 批量任务 - 下载参数配置
+        $standard_batch_title = "{$platform} - 批量任务 - {$spec_desc}";
+
         $new_task = [
             'id' => $task_id,
             'url' => $url,
-            'title' => '批量下载任务 - ' . $url,
-            'platform' => '网络媒体',
+            'title' => $standard_batch_title,
+            'platform' => $platform,
             'media_spec' => $spec_desc,
             'thumbnail' => '',
             'duration' => 0,
@@ -467,7 +471,7 @@ function handle_add_batch_tasks($input) {
             'container' => $container,
             'is_audio_only' => !empty($input['is_audio_only']),
             'audio_format' => $input['audio_format'] ?? 'mp3',
-            'subtitles' => $input['subtitles'] ?? 'all',
+            'subtitles' => $input['subtitles'] ?? ($config['default_subtitles'] ?? 'all'),
             'embed_subtitles' => isset($input['embed_subtitles']) ? (bool)$input['embed_subtitles'] : true,
             'embed_thumbnail' => isset($input['embed_thumbnail']) ? (bool)$input['embed_thumbnail'] : (bool)$config['embed_thumbnail'],
             'embed_metadata' => isset($input['embed_metadata']) ? (bool)$input['embed_metadata'] : (bool)$config['embed_metadata'],
@@ -711,15 +715,20 @@ function handle_get_media_info() {
         json_response(['code' => 404, 'message' => '未找到已落盘的媒体文件，可能已被移除或尚未完成'], 404);
     }
 
-    // 检查缓存
-    if (file_exists($cache_file) && filemtime($cache_file) >= filemtime($target_file)) {
+    $force_refresh = isset($_GET['refresh']) && $_GET['refresh'] === '1';
+
+    // 检查缓存 (非强制刷新且包含有效音视频流时命中)
+    if (!$force_refresh && file_exists($cache_file) && filemtime($cache_file) >= filemtime($target_file)) {
         $cached_data = json_decode(@file_get_contents($cache_file), true);
         if (is_array($cached_data)) {
-            json_response(['code' => 0, 'data' => $cached_data]);
+            $has_streams = !empty($cached_data['video_streams']) || !empty($cached_data['audio_streams']);
+            if ($has_streams) {
+                json_response(['code' => 0, 'data' => $cached_data]);
+            }
         }
     }
 
-    // 调用 ffprobe 结构化解析
+    // 调用双引擎 (ffprobe + ffmpeg -i) 结构化解析
     $media_info = get_media_file_info($target_file);
     if (!$media_info) {
         json_response(['code' => 500, 'message' => '媒体信息提取失败，请检查文件是否可读'], 500);
