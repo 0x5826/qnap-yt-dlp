@@ -61,6 +61,14 @@ setup_arch_binaries() {
     esac
 
     for b in yt-dlp ffmpeg ffprobe; do
+        # 破坏环形自引用死锁：若已存在指向自身或系统 wrapper 的死链接，坚决移除
+        if [ -L "$BIN_DIR/$b" ]; then
+            local cur_link_target=$(readlink "$BIN_DIR/$b" 2>/dev/null)
+            if [ "$cur_link_target" = "/usr/bin/$b" ] || [ "$cur_link_target" = "/usr/local/bin/$b" ] || [ "$cur_link_target" = "$BIN_DIR/$b" ]; then
+                rm -f "$BIN_DIR/$b" 2>/dev/null || true
+            fi
+        fi
+
         if [ -n "$src_dir" ] && [ -f "$src_dir/$b" ]; then
             chmod +x "$src_dir/$b" 2>/dev/null || true
             ln -sf "$src_dir/$b" "$BIN_DIR/$b" 2>/dev/null || true
@@ -71,17 +79,18 @@ setup_arch_binaries() {
             ln -sf "/share/CACHEDEV1_DATA/.qpkg/CayinMediaViewer/CodexPackExt/static/bin/$b" "$BIN_DIR/$b" 2>/dev/null || true
         elif [ "$b" != "yt-dlp" ] && [ -x "/share/CACHEDEV1_DATA/.qpkg/CodexPack/opt/ffmpeg/$b" ]; then
             ln -sf "/share/CACHEDEV1_DATA/.qpkg/CodexPack/opt/ffmpeg/$b" "$BIN_DIR/$b" 2>/dev/null || true
-        elif [ -f "/usr/bin/$b" ]; then
+        elif [ "$b" != "yt-dlp" ] && [ -f "/usr/bin/$b" ]; then
             ln -sf "/usr/bin/$b" "$BIN_DIR/$b" 2>/dev/null || true
-        elif [ -f "/usr/local/bin/$b" ]; then
+        elif [ "$b" != "yt-dlp" ] && [ -f "/usr/local/bin/$b" ]; then
             ln -sf "/usr/local/bin/$b" "$BIN_DIR/$b" 2>/dev/null || true
-        elif [ -f "/opt/bin/$b" ]; then
+        elif [ "$b" != "yt-dlp" ] && [ -f "/opt/bin/$b" ]; then
             ln -sf "/opt/bin/$b" "$BIN_DIR/$b" 2>/dev/null || true
         fi
     done
 
     # 暴露 CLI 工具至系统路径（采用安全 Wrapper 脚本强制将 TMPDIR 重定向至数据盘，杜绝根分区 /tmp 空间耗尽）
-    if [ -f "$BIN_DIR/yt-dlp" ]; then
+    # 严格校验：仅当 $BIN_DIR/yt-dlp 为有效独立执行文件且非自环软链接时方可注入 wrapper
+    if [ -x "$BIN_DIR/yt-dlp" ] && [ "$(readlink -f "$BIN_DIR/yt-dlp" 2>/dev/null)" != "/usr/bin/yt-dlp" ]; then
         cat << EOF > /usr/bin/yt-dlp
 #!/bin/sh
 export TMPDIR="$TMP_DIR"
@@ -175,9 +184,14 @@ case "$1" in
         echo "[$now_str] [SYSTEM] yt-dlp QPKG 套件启动初始化完成 (架构: $(uname -m), 模式: 按需事件驱动)" >> "$DAEMON_LOG"
         echo "[$now_str] [RUNTIME] PHP 引擎: $PHP_BIN" >> "$DAEMON_LOG"
 
-        ytdlp_v="未就绪"
-        ffmpeg_v="未就绪"
-        [ -x "$BIN_DIR/yt-dlp" ] && ytdlp_v=$(TMPDIR="$TMP_DIR" "$BIN_DIR/yt-dlp" --version 2>/dev/null || echo "已就绪")
+        if [ -x "$BIN_DIR/yt-dlp" ]; then
+            local ytdlp_real=$(readlink -f "$BIN_DIR/yt-dlp" 2>/dev/null || echo "")
+            if [ -n "$ytdlp_real" ] && [ "$ytdlp_real" != "/usr/bin/yt-dlp" ]; then
+                ytdlp_v=$(TMPDIR="$TMP_DIR" "$BIN_DIR/yt-dlp" --version 2>/dev/null || echo "已就绪")
+            else
+                ytdlp_v="未就绪 (等待组件初始化)"
+            fi
+        fi
         if [ -x "$BIN_DIR/ffmpeg" ]; then
             real_ff=$(readlink -f "$BIN_DIR/ffmpeg" 2>/dev/null || echo "$BIN_DIR/ffmpeg")
             ff_ver_num=$("$BIN_DIR/ffmpeg" -version 2>/dev/null | head -n 1 | awk '{print $3}')

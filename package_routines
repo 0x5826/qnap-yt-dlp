@@ -54,6 +54,7 @@ pkg_post_install()
         if [ -d "$target_path/conf" ] && [ "$(ls -A "$target_path/conf" 2>/dev/null)" ]; then
             rm -rf /tmp/.ytdlp_upgrade_backup 2>/dev/null
         fi
+    fi
     mkdir -p "$target_path/conf/logs" "$target_path/conf/tmp" "$target_path/bin"
     chmod -Rf 777 "$target_path/conf" 2>/dev/null || true
 
