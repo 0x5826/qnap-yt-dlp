@@ -47,8 +47,8 @@ if (!empty($rate_limit)) {
     $cmd .= ' --limit-rate ' . escapeshellarg($rate_limit);
 }
 
-// Continue partially downloaded files & error tolerance
-$cmd .= ' -c --no-mtime -i --compat-options no-abort-on-error';
+// Continue partially downloaded files & error tolerance (-i ignores non-fatal postprocessing errors)
+$cmd .= ' -c --no-mtime -i';
 
 // Output directory & filename template
 $download_dir = !empty($task['download_dir']) ? $task['download_dir'] : $config['download_dir'];
