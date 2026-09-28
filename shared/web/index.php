@@ -934,6 +934,98 @@ endif;
             line-height: 1.45;
         }
 
+        /* 媒体信息模态框样式 (无 Emoji 极简风格) */
+        .media-section-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: #e2e8f0;
+            margin: 16px 0 10px 0;
+            padding-bottom: 6px;
+            border-bottom: 1px solid var(--border-color);
+            letter-spacing: 0.5px;
+        }
+
+        .media-section-title:first-child {
+            margin-top: 0;
+        }
+
+        .media-specs-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+            gap: 10px;
+            margin-bottom: 14px;
+        }
+
+        .media-spec-item {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 6px;
+            padding: 8px 12px;
+        }
+
+        .media-spec-label {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-bottom: 4px;
+        }
+
+        .media-spec-val {
+            font-size: 13px;
+            font-weight: 500;
+            color: #f8fafc;
+            word-break: break-all;
+            font-family: var(--font-mono);
+        }
+
+        .media-stream-card {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 12px;
+            margin-bottom: 8px;
+        }
+
+        .media-stream-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+            font-size: 12px;
+        }
+
+        .media-stream-badge {
+            background: #2563eb;
+            color: #fff;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 500;
+        }
+
+        .media-stream-badge.audio {
+            background: #0284c7;
+        }
+
+        .media-stream-badge.subtitle {
+            background: #475569;
+        }
+
+        .media-stream-props {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: 8px;
+            font-size: 12px;
+        }
+
+        .media-prop-key {
+            color: var(--text-muted);
+        }
+
+        .media-prop-val {
+            color: #e2e8f0;
+            font-family: var(--font-mono);
+        }
+
         /* 居中浮动 Toast */
         .toast {
             position: fixed;
@@ -1335,6 +1427,19 @@ endif;
             </div>
             <div class="modal-body" id="shares-list">
                 正在检索 /share 卷...
+            </div>
+        </div>
+    </div>
+
+    <!-- 媒体详细信息弹窗 (无 Emoji 极简风格) -->
+    <div id="modal-media-info" class="modal" onclick="if(event.target===this)closeMediaInfoModal()">
+        <div class="modal-card" style="max-width: 820px; max-height: 85vh;">
+            <div class="modal-header">
+                <span class="card-title" id="media-modal-title">媒体详细规格</span>
+                <button class="btn btn-outline btn-sm" onclick="closeMediaInfoModal()">关闭</button>
+            </div>
+            <div class="modal-body" id="media-modal-body" style="background: var(--bg-card); padding: 20px;">
+                <div style="text-align: center; color: var(--text-muted); padding: 40px 0;">正在检索并分析媒体规格...</div>
             </div>
         </div>
     </div>
@@ -1861,6 +1966,7 @@ endif;
                     </div>
                     ${t.error_message ? `<div class="task-err-msg" style="font-size: 11px; color: #ef4444; background: rgba(239,68,68,0.1); padding: 6px 10px; border-radius: 4px; word-break: break-all;">${escapeHtml(t.error_message)}</div>` : ''}
                     <div class="task-actions">
+                        ${t.status === 'completed' ? `<button class="btn btn-outline btn-sm" onclick="viewMediaInfo('${t.id}')">媒体信息</button>` : ''}
                         ${t.status === 'downloading' ? `<button class="btn btn-outline btn-sm" onclick="pauseTask('${t.id}')">暂停</button>` : ''}
                         ${t.status === 'paused' ? `<button class="btn btn-outline btn-sm" onclick="resumeTask('${t.id}')">继续</button>` : ''}
                         ${t.status === 'failed' ? `<button class="btn btn-outline btn-sm" onclick="retryTask('${t.id}')">重试</button>` : ''}
@@ -1957,6 +2063,145 @@ endif;
 
         function closeLogModal() {
             document.getElementById('modal-log').classList.remove('show');
+        }
+
+        async function viewMediaInfo(taskId) {
+            const modal = document.getElementById('modal-media-info');
+            const body = document.getElementById('media-modal-body');
+            const titleEl = document.getElementById('media-modal-title');
+            titleEl.textContent = '媒体详细信息';
+            body.innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 40px 0;">正在检索并分析媒体规格...</div>';
+            modal.classList.add('show');
+
+            try {
+                const res = await fetch(`api.php?action=get_media_info&task_id=${encodeURIComponent(taskId)}`);
+                const json = await res.json();
+                if (json.code !== 0) {
+                    body.innerHTML = `
+                        <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 6px; padding: 16px; color: #ef4444; font-size: 13px;">
+                            <strong>获取媒体信息失败:</strong> ${escapeHtml(json.message || '未知错误')}
+                        </div>
+                    `;
+                    return;
+                }
+
+                const d = json.data;
+                titleEl.textContent = '媒体详细规格 - ' + d.file_name;
+
+                let html = '';
+
+                // 1. 基本规格
+                html += `
+                    <div class="media-section-title">基本规格信息</div>
+                    <div class="media-specs-grid">
+                        <div class="media-spec-item">
+                            <div class="media-spec-label">文件名称</div>
+                            <div class="media-spec-val" title="${escapeHtml(d.file_name)}">${escapeHtml(d.file_name)}</div>
+                        </div>
+                        <div class="media-spec-item">
+                            <div class="media-spec-label">存储路径</div>
+                            <div class="media-spec-val" title="${escapeHtml(d.file_path)}">${escapeHtml(d.file_path)}</div>
+                        </div>
+                        <div class="media-spec-item">
+                            <div class="media-spec-label">文件大小</div>
+                            <div class="media-spec-val">${escapeHtml(d.file_size)}</div>
+                        </div>
+                        <div class="media-spec-item">
+                            <div class="media-spec-label">封装格式</div>
+                            <div class="media-spec-val">${escapeHtml(d.format_name)}</div>
+                        </div>
+                        <div class="media-spec-item">
+                            <div class="media-spec-label">媒体时长</div>
+                            <div class="media-spec-val">${escapeHtml(d.duration_str)}</div>
+                        </div>
+                        <div class="media-spec-item">
+                            <div class="media-spec-label">综合码率</div>
+                            <div class="media-spec-val">${escapeHtml(d.bit_rate_str)}</div>
+                        </div>
+                    </div>
+                `;
+
+                // 2. 视频轨
+                html += `<div class="media-section-title">视频轨 (Video Stream)</div>`;
+                if (d.video_streams && d.video_streams.length > 0) {
+                    d.video_streams.forEach(v => {
+                        html += `
+                            <div class="media-stream-card">
+                                <div class="media-stream-header">
+                                    <span class="media-stream-badge">视频流 #${v.index}</span>
+                                    <span style="font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);">${escapeHtml(v.codec)}</span>
+                                </div>
+                                <div class="media-stream-props">
+                                    <div><span class="media-prop-key">分辨率: </span><span class="media-prop-val">${escapeHtml(v.resolution)}</span></div>
+                                    <div><span class="media-prop-key">帧率: </span><span class="media-prop-val">${escapeHtml(v.fps)}</span></div>
+                                    <div><span class="media-prop-key">视频码率: </span><span class="media-prop-val">${escapeHtml(v.bit_rate)}</span></div>
+                                    <div><span class="media-prop-key">像素格式: </span><span class="media-prop-val">${escapeHtml(v.pix_fmt)}</span></div>
+                                    <div><span class="media-prop-key">显示宽高比: </span><span class="media-prop-val">${escapeHtml(v.aspect_ratio)}</span></div>
+                                </div>
+                            </div>
+                        `;
+                    });
+                } else {
+                    html += `<div style="font-size: 12px; color: var(--text-muted); padding: 8px 0;">未检测到独立视频流</div>`;
+                }
+
+                // 3. 音频轨
+                html += `<div class="media-section-title">音频轨 (Audio Stream)</div>`;
+                if (d.audio_streams && d.audio_streams.length > 0) {
+                    d.audio_streams.forEach(a => {
+                        html += `
+                            <div class="media-stream-card">
+                                <div class="media-stream-header">
+                                    <span class="media-stream-badge audio">音频流 #${a.index}</span>
+                                    <span style="font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);">${escapeHtml(a.codec)}</span>
+                                </div>
+                                <div class="media-stream-props">
+                                    <div><span class="media-prop-key">声道配置: </span><span class="media-prop-val">${escapeHtml(a.channels)}</span></div>
+                                    <div><span class="media-prop-key">采样率: </span><span class="media-prop-val">${escapeHtml(a.sample_rate)}</span></div>
+                                    <div><span class="media-prop-key">音频码率: </span><span class="media-prop-val">${escapeHtml(a.bit_rate)}</span></div>
+                                    <div><span class="media-prop-key">语言标识: </span><span class="media-prop-val">${escapeHtml(a.language)}</span></div>
+                                    ${a.title ? `<div><span class="media-prop-key">音轨标题: </span><span class="media-prop-val">${escapeHtml(a.title)}</span></div>` : ''}
+                                </div>
+                            </div>
+                        `;
+                    });
+                } else {
+                    html += `<div style="font-size: 12px; color: var(--text-muted); padding: 8px 0;">未检测到独立音频流</div>`;
+                }
+
+                // 4. 字幕轨
+                html += `<div class="media-section-title">字幕轨 (Subtitle Stream)</div>`;
+                if (d.subtitle_streams && d.subtitle_streams.length > 0) {
+                    d.subtitle_streams.forEach(s => {
+                        html += `
+                            <div class="media-stream-card">
+                                <div class="media-stream-header">
+                                    <span class="media-stream-badge subtitle">字幕流 #${s.index}</span>
+                                    <span style="font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);">${escapeHtml(s.codec)}</span>
+                                </div>
+                                <div class="media-stream-props">
+                                    <div><span class="media-prop-key">语言标识: </span><span class="media-prop-val">${escapeHtml(s.language)}</span></div>
+                                    <div><span class="media-prop-key">字幕标题: </span><span class="media-prop-val">${escapeHtml(s.title)}</span></div>
+                                </div>
+                            </div>
+                        `;
+                    });
+                } else {
+                    html += `<div style="font-size: 12px; color: var(--text-muted); padding: 8px 0;">未检测到内嵌字幕流</div>`;
+                }
+
+                body.innerHTML = html;
+            } catch (err) {
+                body.innerHTML = `
+                    <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 6px; padding: 16px; color: #ef4444; font-size: 13px;">
+                        <strong>请求失败:</strong> ${escapeHtml(err.message)}
+                    </div>
+                `;
+            }
+        }
+
+        function closeMediaInfoModal() {
+            document.getElementById('modal-media-info').classList.remove('show');
         }
 
         let shareTargetInputType = 'task';

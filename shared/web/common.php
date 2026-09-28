@@ -589,5 +589,150 @@ function get_media_platform_name($data, $url = '') {
     return !empty($raw) ? ucfirst($raw) : 'WebMedia';
 }
 
+/**
+ * 格式化秒数为人类易读时长
+ */
+function format_duration_human($seconds) {
+    $seconds = intval($seconds);
+    if ($seconds <= 0) return '--';
+    $h = floor($seconds / 3600);
+    $m = floor(($seconds % 3600) / 60);
+    $s = $seconds % 60;
+    if ($h > 0) {
+        return "{$h}小时{$m}分{$s}秒";
+    }
+    if ($m > 0) {
+        return "{$m}分{$s}秒";
+    }
+    return "{$s}秒";
+}
+
+/**
+ * 使用 ffprobe 获取音视频文件的详细结构化规格（分辨率、码率、编解码器、音轨、字幕等）
+ */
+function get_media_file_info($file_path) {
+    if (!file_exists($file_path) || !is_readable($file_path)) {
+        return null;
+    }
+
+    $file_size = @filesize($file_path);
+    $file_name = basename($file_path);
+    $ext = strtolower(pathinfo($file_path, PATHINFO_EXTENSION));
+
+    $ffprobe = get_binary_path('ffprobe');
+    $probe_data = null;
+    if ($ffprobe) {
+        $cmd = escapeshellarg($ffprobe) . ' -v quiet -print_format json -show_format -show_streams ' . escapeshellarg($file_path) . ' 2>/dev/null';
+        $output = shell_exec($cmd);
+        if (!empty($output)) {
+            $probe_data = json_decode($output, true);
+        }
+    }
+
+    $res = [
+        'file_name' => $file_name,
+        'file_path' => $file_path,
+        'file_size' => format_bytes($file_size),
+        'file_size_bytes' => $file_size,
+        'format_name' => strtoupper($ext),
+        'duration_str' => '--',
+        'duration_sec' => 0,
+        'bit_rate_str' => '--',
+        'video_streams' => [],
+        'audio_streams' => [],
+        'subtitle_streams' => []
+    ];
+
+    if ($probe_data && !empty($probe_data['format'])) {
+        $fmt = $probe_data['format'];
+        if (!empty($fmt['format_long_name'])) {
+            $res['format_name'] = $fmt['format_long_name'];
+        } elseif (!empty($fmt['format_name'])) {
+            $res['format_name'] = strtoupper($fmt['format_name']);
+        }
+        if (!empty($fmt['duration'])) {
+            $sec = floatval($fmt['duration']);
+            $res['duration_sec'] = round($sec, 1);
+            $res['duration_str'] = format_duration_human(intval($sec));
+        }
+        if (!empty($fmt['bit_rate'])) {
+            $br = round(intval($fmt['bit_rate']) / 1000);
+            $res['bit_rate_str'] = number_format($br) . ' kbps';
+        }
+    }
+
+    if ($probe_data && !empty($probe_data['streams']) && is_array($probe_data['streams'])) {
+        foreach ($probe_data['streams'] as $st) {
+            $type = $st['codec_type'] ?? '';
+            $idx = $st['index'] ?? 0;
+            $codec = strtoupper($st['codec_name'] ?? '未知');
+            $profile = $st['profile'] ?? '';
+            $bit_rate = !empty($st['bit_rate']) ? number_format(round(intval($st['bit_rate']) / 1000)) . ' kbps' : '';
+
+            if ($type === 'video') {
+                $w = intval($st['width'] ?? 0);
+                $h = intval($st['height'] ?? 0);
+                $res_str = ($w > 0 && $h > 0) ? "{$w} × {$h}" : '--';
+
+                $fps = '--';
+                if (!empty($st['r_frame_rate']) && strpos($st['r_frame_rate'], '/') !== false) {
+                    list($num, $den) = explode('/', $st['r_frame_rate']);
+                    if (intval($den) > 0) {
+                        $calc_fps = round(intval($num) / intval($den), 2);
+                        if ($calc_fps > 0) $fps = $calc_fps . ' fps';
+                    }
+                } elseif (!empty($st['avg_frame_rate']) && strpos($st['avg_frame_rate'], '/') !== false) {
+                    list($num, $den) = explode('/', $st['avg_frame_rate']);
+                    if (intval($den) > 0) {
+                        $calc_fps = round(intval($num) / intval($den), 2);
+                        if ($calc_fps > 0) $fps = $calc_fps . ' fps';
+                    }
+                }
+
+                $res['video_streams'][] = [
+                    'index' => $idx,
+                    'codec' => $codec . ($profile ? " ({$profile})" : ''),
+                    'resolution' => $res_str,
+                    'fps' => $fps,
+                    'bit_rate' => $bit_rate ?: '--',
+                    'pix_fmt' => $st['pix_fmt'] ?? '--',
+                    'aspect_ratio' => $st['display_aspect_ratio'] ?? '--'
+                ];
+            } elseif ($type === 'audio') {
+                $channels = intval($st['channels'] ?? 0);
+                $chan_layout = $st['channel_layout'] ?? '';
+                $chan_str = $channels > 0 ? "{$channels} 声道" : '--';
+                if ($chan_layout) $chan_str .= " ({$chan_layout})";
+
+                $sample_rate = !empty($st['sample_rate']) ? $st['sample_rate'] . ' Hz' : '--';
+                $lang = $st['tags']['language'] ?? ($st['tags']['LANGUAGE'] ?? 'und');
+                $title = $st['tags']['title'] ?? ($st['tags']['TITLE'] ?? '');
+
+                $res['audio_streams'][] = [
+                    'index' => $idx,
+                    'codec' => $codec . ($profile ? " ({$profile})" : ''),
+                    'channels' => $chan_str,
+                    'sample_rate' => $sample_rate,
+                    'bit_rate' => $bit_rate ?: '--',
+                    'language' => $lang,
+                    'title' => $title
+                ];
+            } elseif ($type === 'subtitle') {
+                $lang = $st['tags']['language'] ?? ($st['tags']['LANGUAGE'] ?? 'und');
+                $title = $st['tags']['title'] ?? ($st['tags']['TITLE'] ?? '');
+
+                $res['subtitle_streams'][] = [
+                    'index' => $idx,
+                    'codec' => $codec,
+                    'language' => $lang,
+                    'title' => $title ?: '--'
+                ];
+            }
+        }
+    }
+
+    return $res;
+}
+
 
 

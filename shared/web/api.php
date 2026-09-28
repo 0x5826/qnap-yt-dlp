@@ -77,6 +77,10 @@ switch ($action) {
         handle_get_task_log();
         break;
 
+    case 'get_media_info':
+        handle_get_media_info();
+        break;
+
     case 'get_daemon_log':
         handle_get_daemon_log();
         break;
@@ -653,6 +657,80 @@ function handle_get_task_log() {
     }
     $content = shell_exec("tail -n 300 " . escapeshellarg($log_file));
     json_response(['code' => 0, 'data' => ['log' => $content ?: '']]);
+}
+
+function handle_get_media_info() {
+    $task_id = $_GET['task_id'] ?? ($_POST['task_id'] ?? '');
+    if (empty($task_id)) {
+        json_response(['code' => 400, 'message' => '缺少任务 ID'], 400);
+    }
+
+    $tasks = get_tasks();
+    $target_task = null;
+    foreach ($tasks as $t) {
+        if (($t['id'] ?? '') === $task_id) {
+            $target_task = $t;
+            break;
+        }
+    }
+
+    if (!$target_task) {
+        json_response(['code' => 404, 'message' => '未找到对应任务'], 404);
+    }
+
+    $task_dir = LOGS_DIR . '/tasks/' . $task_id;
+    $cache_file = $task_dir . '/media_info.json';
+
+    // 寻找目标产物物理文件路径
+    $target_file = $target_task['target_file'] ?? '';
+    if (empty($target_file) || !file_exists($target_file)) {
+        $out_log = $task_dir . '/output.log';
+        if (file_exists($out_log)) {
+            $meta = inspect_task_log($out_log);
+            $target_file = $meta['target_file'] ?: ($meta['dest_file'] ?? '');
+        }
+    }
+
+    // 若依然为空，尝试在下载目录按标题匹配文件
+    if ((empty($target_file) || !file_exists($target_file)) && !empty($target_task['download_dir']) && is_dir($target_task['download_dir'])) {
+        $down_dir = rtrim($target_task['download_dir'], '/');
+        $candidates = @scandir($down_dir) ?: [];
+        foreach ($candidates as $c) {
+            if ($c === '.' || $c === '..' || substr($c, -5) === '.part') continue;
+            $full_c = $down_dir . '/' . $c;
+            if (is_file($full_c)) {
+                if (!empty($target_task['title']) && strpos($c, mb_substr($target_task['title'], 0, 15)) !== false) {
+                    $target_file = $full_c;
+                    break;
+                }
+            }
+        }
+    }
+
+    if (empty($target_file) || !file_exists($target_file)) {
+        json_response(['code' => 404, 'message' => '未找到已落盘的媒体文件，可能已被移除或尚未完成'], 404);
+    }
+
+    // 检查缓存
+    if (file_exists($cache_file) && filemtime($cache_file) >= filemtime($target_file)) {
+        $cached_data = json_decode(@file_get_contents($cache_file), true);
+        if (is_array($cached_data)) {
+            json_response(['code' => 0, 'data' => $cached_data]);
+        }
+    }
+
+    // 调用 ffprobe 结构化解析
+    $media_info = get_media_file_info($target_file);
+    if (!$media_info) {
+        json_response(['code' => 500, 'message' => '媒体信息提取失败，请检查文件是否可读'], 500);
+    }
+
+    // 写入缓存加速后续读取
+    if (is_dir($task_dir)) {
+        @file_put_contents($cache_file, json_encode($media_info, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
+    }
+
+    json_response(['code' => 0, 'data' => $media_info]);
 }
 
 function handle_get_daemon_log() {
