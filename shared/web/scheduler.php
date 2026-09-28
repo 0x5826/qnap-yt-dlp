@@ -65,10 +65,15 @@ function inspect_running_task_streams($output_log, $is_multi_stream = true) {
     $latest_media_dest = '';
     $last_speed = '';
     $last_eta = '';
+    $playlist_cur = 0;
+    $playlist_tot = 0;
 
     foreach ($lines as $line) {
         $line = trim($line);
-        if (preg_match('/Merging formats into [\"\x27]([^\x27\"]+)[\"\x27]/i', $line, $m)) {
+        if (preg_match('/\[download\] Downloading (?:video|item)\s+(\d+)\s+of\s+(\d+)/i', $line, $pm)) {
+            $playlist_cur = intval($pm[1]);
+            $playlist_tot = intval($pm[2]);
+        } elseif (preg_match('/Merging formats into [\"\x27]([^\x27\"]+)[\"\x27]/i', $line, $m)) {
             $is_merging = true;
             $target_file = $m[1];
         } elseif (preg_match('/\[download\] Destination:\s*(.+)$/i', $line, $m)) {
@@ -87,21 +92,38 @@ function inspect_running_task_streams($output_log, $is_multi_stream = true) {
             $parsed = parse_ytdlp_log_line($line);
             if ($parsed) {
                 if (!isset($streams[$current_dest])) {
-                    $streams[$current_dest] = ['total_b' => 0, 'dl_b' => 0, 'pct' => 0];
+                    $streams[$current_dest] = [
+                        'dest' => $current_dest,
+                        'total_b' => 0,
+                        'dl_b' => 0,
+                        'pct' => 0.0,
+                        'speed' => '',
+                        'eta' => '',
+                        'total_str' => '',
+                        'dl_str' => ''
+                    ];
                 }
                 if (!empty($parsed['total_size'])) {
                     $sz_b = parse_size_str($parsed['total_size']);
                     if ($sz_b > 0) $streams[$current_dest]['total_b'] = max($streams[$current_dest]['total_b'], $sz_b);
+                    $streams[$current_dest]['total_str'] = $parsed['total_size'];
                 }
                 if (!empty($parsed['downloaded'])) {
                     $dl_b = parse_size_str($parsed['downloaded']);
                     if ($dl_b > 0) $streams[$current_dest]['dl_b'] = max($streams[$current_dest]['dl_b'], $dl_b);
+                    $streams[$current_dest]['dl_str'] = $parsed['downloaded'];
                 }
                 if (isset($parsed['progress'])) {
                     $streams[$current_dest]['pct'] = max($streams[$current_dest]['pct'], floatval($parsed['progress']));
                 }
-                if (!empty($parsed['speed'])) $last_speed = $parsed['speed'];
-                if (!empty($parsed['eta'])) $last_eta = $parsed['eta'];
+                if (!empty($parsed['speed'])) {
+                    $streams[$current_dest]['speed'] = $parsed['speed'];
+                    $last_speed = $parsed['speed'];
+                }
+                if (!empty($parsed['eta'])) {
+                    $streams[$current_dest]['eta'] = $parsed['eta'];
+                    $last_eta = $parsed['eta'];
+                }
             }
         }
     }
@@ -115,14 +137,73 @@ function inspect_running_task_streams($output_log, $is_multi_stream = true) {
             'eta' => $last_eta,
             'total_size' => '',
             'downloaded' => '',
-            'progress' => 0.0
+            'progress' => 0.0,
+            'current_file_progress' => 0.0,
+            'current_file_dl' => '',
+            'current_file_total' => '',
+            'file_count_str' => '',
+            'file_count_completed' => 0,
+            'file_count_total' => 1,
+            'file_label' => ''
         ];
     }
 
+    // 多文件与分流完成计数统计
+    $stream_list = array_values($streams);
+    $stream_count = count($stream_list);
+
+    $total_count = 1;
+    $completed_count = 0;
+    $current_index = 1;
+    $active_stream = end($stream_list);
+
+    if ($playlist_tot > 0) {
+        // 播放列表多视频下载场景
+        $total_count = $playlist_tot;
+        $current_index = max(1, $playlist_cur);
+        $completed_count = max(0, $playlist_cur - 1);
+        if (($active_stream['pct'] ?? 0) >= 99.9) {
+            $completed_count = $playlist_cur;
+        }
+        $file_label = "第 {$current_index}/{$total_count} 个视频";
+    } elseif ($is_multi_stream) {
+        // 单视频音画分离双流下载场景（视频流 + 音频流）
+        $total_count = max(2, $stream_count);
+        $current_index = min($total_count, $stream_count);
+        // 已经下载完毕的前置流计入完成数
+        for ($i = 0; $i < $stream_count - 1; $i++) {
+            if ($stream_list[$i]['pct'] >= 99.9) {
+                $completed_count++;
+            }
+        }
+        if (($active_stream['pct'] ?? 0) >= 99.9 && $is_merging) {
+            $completed_count = $total_count;
+        }
+
+        if ($current_index === 1) {
+            $file_label = "分流 1/2 (视频)";
+        } elseif ($current_index === 2) {
+            $file_label = "分流 2/2 (音频)";
+        } else {
+            $file_label = "分流 {$current_index}/{$total_count}";
+        }
+    } else {
+        // 原生单流场景
+        $total_count = 1;
+        $current_index = 1;
+        $completed_count = (($active_stream['pct'] ?? 0) >= 99.9) ? 1 : 0;
+        $file_label = "单流媒体";
+    }
+
+    // 提取当前正在下载的单个文件的独立进度（0% ~ 100%）
+    $curr_progress = floatval($active_stream['pct'] ?? 0.0);
+    $curr_dl = $active_stream['dl_str'] ?? '';
+    $curr_tot = $active_stream['total_str'] ?? '';
+
+    // 累计大小
     $total_bytes = 0;
     $dl_bytes = 0;
-
-    foreach ($streams as $dest => $s) {
+    foreach ($streams as $s) {
         $st_total = $s['total_b'];
         $st_dl = $s['dl_b'];
         if ($s['pct'] >= 99.9 && $st_total > 0) {
@@ -132,35 +213,22 @@ function inspect_running_task_streams($output_log, $is_multi_stream = true) {
         $dl_bytes += $st_dl;
     }
 
-    $calc_pct = 0.0;
-    if ($total_bytes > 0) {
-        $raw_ratio = ($dl_bytes / $total_bytes);
-        if (count($streams) === 1) {
-            if ($is_multi_stream) {
-                // 首个主流下载阶段：为次级流平滑接续预留空间，上限保留在 92.5%，杜绝主流冲顶导致次级流全程被 max() 冻结
-                $calc_pct = min(92.5, round($raw_ratio * 92.5, 1));
-            } else {
-                // 原生单流模式（如纯音频任务或单流视频）：无后续次级流，平滑递增至 99.8%
-                $calc_pct = min(99.8, round($raw_ratio * 100, 1));
-            }
-        } else {
-            // 双流/多流阶段：基于真实汇总大小与已下载量综合计算真实进度
-            $calc_pct = min(99.8, round($raw_ratio * 100, 1));
-        }
-        $calc_pct = max(0.1, $calc_pct);
-    }
-
     return [
         'is_merging' => $is_merging,
         'target_file' => $target_file,
         'dest_file' => $latest_media_dest,
+        'speed' => !empty($active_stream['speed']) ? $active_stream['speed'] : $last_speed,
+        'eta' => !empty($active_stream['eta']) ? $active_stream['eta'] : $last_eta,
         'total_size' => $total_bytes > 0 ? format_bytes($total_bytes) : '',
         'downloaded' => $dl_bytes > 0 ? format_bytes($dl_bytes) : '',
-        'total_bytes' => $total_bytes,
-        'downloaded_bytes' => $dl_bytes,
-        'progress' => $calc_pct,
-        'speed' => $last_speed,
-        'eta' => $last_eta
+        'progress' => $curr_progress,
+        'current_file_progress' => $curr_progress,
+        'current_file_dl' => $curr_dl,
+        'current_file_total' => $curr_tot,
+        'file_count_str' => "{$completed_count}/{$total_count}",
+        'file_count_completed' => $completed_count,
+        'file_count_total' => $total_count,
+        'file_label' => $file_label
     ];
 }
 
@@ -192,6 +260,9 @@ foreach ($tasks as $idx => &$task) {
                         $task['progress'] = 99.8;
                         $task['speed'] = '音画转码合并中';
                         $task['eta'] = '处理中';
+                        $task['file_count_str'] = "{$st_info['file_count_total']}/{$st_info['file_count_total']}";
+                        $task['file_count_total'] = $st_info['file_count_total'];
+                        $task['file_label'] = '音画转码合并中';
                         if (!empty($st_info['total_size'])) {
                             $task['total_size'] = $st_info['total_size'];
                             $task['downloaded'] = $st_info['total_size'];
@@ -210,10 +281,16 @@ foreach ($tasks as $idx => &$task) {
                             }
                         }
                     } else {
-                        // 正在下载中（单流或多音视频流累计）
-                        if ($st_info['progress'] > 0) {
-                            $prev_pct = floatval($task['progress'] ?? 0);
-                            $task['progress'] = max($prev_pct, $st_info['progress']);
+                        // 正在下载中：进度条严格代表当前正在下载文件的独立进度
+                        $task['progress'] = $st_info['current_file_progress'];
+                        $task['file_count_str'] = $st_info['file_count_str'];
+                        $task['file_count_total'] = $st_info['file_count_total'];
+                        $task['file_label'] = $st_info['file_label'];
+                        if (!empty($st_info['current_file_dl'])) {
+                            $task['current_file_dl'] = $st_info['current_file_dl'];
+                        }
+                        if (!empty($st_info['current_file_total'])) {
+                            $task['current_file_total'] = $st_info['current_file_total'];
                         }
                         if (!empty($st_info['speed'])) {
                             $task['speed'] = $st_info['speed'];
@@ -324,6 +401,9 @@ foreach ($tasks as $idx => &$task) {
                 $task['progress'] = 100;
                 $task['eta'] = '00:00';
                 $task['completed_at'] = $now;
+                if (!empty($task['file_count_total'])) {
+                    $task['file_count_str'] = "{$task['file_count_total']}/{$task['file_count_total']}";
+                }
                 $task['elapsed_time'] = $elapsed;
                 $task['time_cost_str'] = $cost_str;
                 $task['speed'] = $final_spd;

@@ -48,7 +48,8 @@ if (!empty($rate_limit)) {
 }
 
 // Continue partially downloaded files & error tolerance (-i ignores non-fatal postprocessing errors)
-$cmd .= ' -c --no-mtime -i';
+// --trim-filenames 150 严格限制文件名主干在 150 字符以内，防止 Linux EXT4 单文件名 255 字节超限导致 [Errno 36] File name too long
+$cmd .= ' -c --no-mtime -i --trim-filenames 150';
 
 // Output directory & filename template
 $download_dir = !empty($task['download_dir']) ? $task['download_dir'] : $config['download_dir'];
@@ -56,9 +57,9 @@ if (!is_dir($download_dir)) {
     @mkdir($download_dir, 0755, true);
 }
 
-$template = !empty($task['filename_template']) ? $task['filename_template'] : ($config['filename_template'] ?? '%(extractor_key)s-%(title)s [%(id)s].%(ext)s');
-if ($template === '%(title)s [%(id)s].%(ext)s') {
-    $template = '%(extractor_key)s-%(title)s [%(id)s].%(ext)s';
+$template = !empty($task['filename_template']) ? $task['filename_template'] : ($config['filename_template'] ?? '%(extractor_key)s-%(title).100s [%(id)s].%(ext)s');
+if ($template === '%(title)s [%(id)s].%(ext)s' || $template === '%(extractor_key)s-%(title)s [%(id)s].%(ext)s') {
+    $template = '%(extractor_key)s-%(title).100s [%(id)s].%(ext)s';
 }
 $output_path = rtrim($download_dir, '/') . '/' . ltrim($template, '/');
 $cmd .= ' -o ' . safe_escapeshellarg($output_path);
