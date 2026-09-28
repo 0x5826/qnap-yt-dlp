@@ -146,7 +146,14 @@ function inspect_running_task_streams($output_log, $is_multi_stream = true) {
                     $streams[$current_dest]['dl_str'] = $parsed['downloaded'];
                 }
                 if (isset($parsed['progress'])) {
-                    $streams[$current_dest]['pct'] = max($streams[$current_dest]['pct'], floatval($parsed['progress']));
+                    $p_val = floatval($parsed['progress']);
+                    // 过滤 HLS m3u8 清单极小分片 (< 64KB 且无总大小) 带来的瞬时假 100%
+                    $dl_bytes_now = !empty($parsed['downloaded']) ? parse_size_str($parsed['downloaded']) : 0;
+                    if ($p_val >= 99.9 && $dl_bytes_now > 0 && $dl_bytes_now < 65536 && (empty($parsed['total_size']) || $parsed['total_size'] === 'N/A')) {
+                        // 忽略 HLS m3u8 manifest 文件的瞬时 100% 信号
+                    } else {
+                        $streams[$current_dest]['pct'] = $p_val;
+                    }
                 }
                 if (!empty($parsed['speed'])) {
                     $streams[$current_dest]['speed'] = $parsed['speed'];
