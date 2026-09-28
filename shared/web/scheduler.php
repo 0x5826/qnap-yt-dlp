@@ -81,8 +81,40 @@ function inspect_running_task_streams($output_log, $is_multi_stream = true) {
             if (!is_auxiliary_asset_file($dest_cand)) {
                 $current_dest = $dest_cand;
                 $latest_media_dest = $dest_cand;
+                if (!isset($streams[$current_dest])) {
+                    $streams[$current_dest] = [
+                        'dest' => $current_dest,
+                        'total_b' => 0,
+                        'dl_b' => 0,
+                        'pct' => 0.0,
+                        'speed' => '',
+                        'eta' => '',
+                        'total_str' => '',
+                        'dl_str' => ''
+                    ];
+                }
             } else {
                 $current_dest = 'aux_' . $dest_cand;
+            }
+        } elseif (preg_match('/\[download\]\s+(.+?)\s+has already been downloaded/i', $line, $m)) {
+            $dest_cand = trim($m[1]);
+            if (!is_auxiliary_asset_file($dest_cand)) {
+                $current_dest = $dest_cand;
+                $latest_media_dest = $dest_cand;
+                if (!isset($streams[$current_dest])) {
+                    $streams[$current_dest] = [
+                        'dest' => $current_dest,
+                        'total_b' => 0,
+                        'dl_b' => 0,
+                        'pct' => 100.0,
+                        'speed' => '',
+                        'eta' => '',
+                        'total_str' => '',
+                        'dl_str' => ''
+                    ];
+                } else {
+                    $streams[$current_dest]['pct'] = 100.0;
+                }
             }
         } elseif (stripos($line, '[Merger]') !== false) {
             $is_merging = true;
@@ -192,7 +224,7 @@ function inspect_running_task_streams($output_log, $is_multi_stream = true) {
         $total_count = 1;
         $current_index = 1;
         $completed_count = (($active_stream['pct'] ?? 0) >= 99.9) ? 1 : 0;
-        $file_label = "单流媒体";
+        $file_label = "";
     }
 
     // 提取当前正在下载的单个文件的独立进度（0% ~ 100%）

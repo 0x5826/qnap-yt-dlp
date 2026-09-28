@@ -141,7 +141,7 @@ function get_app_config() {
     $default = [
         'autostart' => 1,
         'download_dir' => '/share/Download',
-        'filename_template' => '%(extractor_key)s-%(title).100s [%(id)s].%(ext)s',
+        'filename_template' => '%(extractor_key)s - %(title).40s [%(id)s].%(ext)s',
         'max_concurrent_tasks' => 2,
         'rate_limit' => '',
         'proxy' => '',
@@ -158,8 +158,9 @@ function get_app_config() {
         $data = json_decode($content, true);
         if (is_array($data)) {
             $merged = array_merge($default, $data);
-            if (($merged['filename_template'] ?? '') === '%(title)s [%(id)s].%(ext)s' || ($merged['filename_template'] ?? '') === '%(extractor_key)s-%(title)s [%(id)s].%(ext)s') {
-                $merged['filename_template'] = '%(extractor_key)s-%(title).100s [%(id)s].%(ext)s';
+            $tpl = $merged['filename_template'] ?? '';
+            if (empty($tpl) || strpos($tpl, '%(title)s') !== false || strpos($tpl, '%(title).100s') !== false || strpos($tpl, '%(extractor_key)s-%(title)') !== false) {
+                $merged['filename_template'] = '%(extractor_key)s - %(title).40s [%(id)s].%(ext)s';
             }
             return $merged;
         }

@@ -1367,7 +1367,7 @@ endif;
                     </div>
                     <div class="form-group">
                         <label class="form-label">文件名输出模板</label>
-                        <input type="text" id="cfg-filename-template" class="form-input" placeholder="%(extractor_key)s-%(title)s [%(id)s].%(ext)s">
+                        <input type="text" id="cfg-filename-template" class="form-input" placeholder="%(extractor_key)s - %(title).40s [%(id)s].%(ext)s">
                     </div>
                 </div>
 
@@ -2033,19 +2033,6 @@ endif;
                 }
 
                 let infoRowHtml = '';
-                const hasMultiFiles = t.file_count_str && (t.file_count_total > 1 || t.file_count_str !== '1/1');
-                let fileCountBadgeHtml = '';
-                if (hasMultiFiles) {
-                    let badgeColor = (t.status === 'completed') ? '#10b981' : '#38bdf8';
-                    let badgeBg = (t.status === 'completed') ? 'rgba(16,185,129,0.12)' : 'rgba(56,189,248,0.12)';
-                    let badgeBorder = (t.status === 'completed') ? 'rgba(16,185,129,0.3)' : 'rgba(56,189,248,0.3)';
-                    fileCountBadgeHtml = `
-                        <span style="display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; background: ${badgeBg}; color: ${badgeColor}; border: 1px solid ${badgeBorder}; font-weight: 500;">
-                            文件完成数: ${escapeHtml(t.file_count_str)}
-                        </span>
-                    `;
-                }
-
                 if (t.status === 'completed') {
                     const totalSz = (t.total_size && t.total_size !== '--') ? t.total_size : (t.downloaded || '完整');
                     const spd = (t.final_speed && t.final_speed !== '--') ? t.final_speed : (t.speed || '--');
@@ -2064,16 +2051,16 @@ endif;
                     const dlSizeStr = (currentDl && currentTot && currentTot !== '--') ? ` (${escapeHtml(currentDl)} / ${escapeHtml(currentTot)})` : '';
                     const currentSpd = (t.status === 'merging') ? '转码合并中' : (t.speed || '--');
                     const currentEta = (t.status === 'merging') ? '处理中' : (t.eta || '--');
-                    const stageStr = t.file_label ? `<span>当前阶段: <strong style="color: #38bdf8;">${escapeHtml(t.file_label)}</strong></span>` : '';
+                    const fileProgressStr = t.file_label ? `<span>文件数量进度: <strong style="color: #38bdf8;">${escapeHtml(t.file_label)}</strong></span>` : '';
                     infoRowHtml = `
-                        ${stageStr}
-                        <span>当前进度: <strong style="color: var(--text-main);">${progress.toFixed(1)}%${dlSizeStr}</strong></span>
+                        ${fileProgressStr}
+                        <span>当前文件进度: <strong style="color: var(--text-main);">${progress.toFixed(1)}%${dlSizeStr}</strong></span>
                         <span>速率: <strong style="color: #10b981;">${escapeHtml(currentSpd)}</strong></span>
                         <span>剩余: <strong style="color: #38bdf8;">${escapeHtml(currentEta)}</strong></span>
                     `;
                 } else {
                     infoRowHtml = `
-                        <span>进度: ${progress.toFixed(1)}%</span>
+                        <span>当前文件进度: ${progress.toFixed(1)}%</span>
                         <span>状态: ${statusLabel}</span>
                         <span>格式: ${escapeHtml(t.container || 'mp4').toUpperCase()}</span>
                     `;
@@ -2091,7 +2078,6 @@ endif;
                             <div class="task-subtitle">存储目录: ${escapeHtml(t.download_dir || '--')}</div>
                         </div>
                         <div style="text-align: right; display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
-                            ${fileCountBadgeHtml}
                             <span style="display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; background: rgba(255,255,255,0.06); color: ${statusColor};">
                                 ${statusLabel}
                             </span>

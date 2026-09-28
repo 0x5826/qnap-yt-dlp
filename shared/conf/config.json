@@ -1,7 +1,7 @@
 {
   "autostart": 1,
   "download_dir": "/share/Download",
-  "filename_template": "%(title)s [%(id)s].%(ext)s",
+  "filename_template": "%(extractor_key)s - %(title).40s [%(id)s].%(ext)s",
   "max_concurrent_tasks": 2,
   "rate_limit": "",
   "proxy": "",
