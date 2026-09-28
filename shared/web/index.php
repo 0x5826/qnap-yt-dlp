@@ -451,6 +451,12 @@ endif;
             border: 1px solid rgba(225, 29, 72, 0.25);
         }
 
+        .bg-indigo {
+            background: rgba(99, 102, 241, 0.15);
+            color: #818cf8;
+            border: 1px solid rgba(99, 102, 241, 0.25);
+        }
+
         .bg-blue {
             background: rgba(14, 165, 233, 0.15);
             color: #38bdf8;
