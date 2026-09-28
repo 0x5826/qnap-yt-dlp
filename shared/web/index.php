@@ -872,7 +872,7 @@ endif;
             <div class="header-right">
                 <div class="status-indicator-box">
                     <span class="pulse-dot status-dot-running" id="daemon-dot"></span>
-                    <span class="status-text" id="daemon-text">调度引擎: 实时就绪</span>
+                    <span class="status-text" id="daemon-text">正常运行</span>
                 </div>
                 <div class="action-buttons">
                     <button class="btn btn-outline" onclick="fetchStatus()">
@@ -972,9 +972,9 @@ endif;
         <!-- 选项卡导航 -->
         <div class="tab-bar">
             <button class="tab-btn active" onclick="switchTab('tab-parse')">新建下载任务</button>
-            <button class="tab-btn" onclick="switchTab('tab-tasks')">任务调度队列 (<span id="task-badge">0</span>)</button>
+            <button class="tab-btn" onclick="switchTab('tab-tasks')">任务队列 (<span id="task-badge">0</span>)</button>
             <button class="tab-btn" onclick="switchTab('tab-config')">全局配置</button>
-            <button class="tab-btn" onclick="switchTab('tab-logs')">调度与运行日志</button>
+            <button class="tab-btn" onclick="switchTab('tab-logs')">运行日志</button>
         </div>
 
         <!-- 选项卡 1: 新建下载任务 -->
@@ -1072,11 +1072,11 @@ endif;
             </div>
         </div>
 
-        <!-- 选项卡 2: 任务调度队列 -->
+        <!-- 选项卡 2: 任务队列 -->
         <div id="tab-tasks" class="tab-content">
             <div class="card">
                 <div class="card-header">
-                    <span class="card-title">任务调度队列</span>
+                    <span class="card-title">任务队列</span>
                     <div style="display: flex; gap: 8px;">
                         <button class="btn btn-outline btn-sm" onclick="fetchTasks()">刷新列表</button>
                         <button class="btn btn-outline btn-sm" onclick="clearCompletedTasks()">清空已完成</button>
@@ -1160,7 +1160,7 @@ endif;
         <div id="tab-logs" class="tab-content">
             <div class="card">
                 <div class="card-header">
-                    <span class="card-title">系统任务调度与运行日志</span>
+                    <span class="card-title">运行日志</span>
                     <div style="display: flex; gap: 8px;">
                         <button class="btn btn-outline btn-sm" onclick="fetchDaemonLog()">刷新日志</button>
                         <button class="btn btn-outline btn-sm" onclick="clearDaemonLog()">清空日志</button>
@@ -1250,7 +1250,7 @@ endif;
                     const dot = document.getElementById('daemon-dot');
                     const text = document.getElementById('daemon-text');
                     dot.className = 'pulse-dot status-dot-running';
-                    text.textContent = '调度引擎: 实时就绪';
+                    text.textContent = '正常运行';
 
                     // 统计指标渲染
                     const st = d.stats;
