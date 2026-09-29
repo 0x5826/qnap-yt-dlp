@@ -8,7 +8,7 @@ BUILD_DIR="${ROOT_DIR}/build"
 cd "${ROOT_DIR}"
 mkdir -p "${BUILD_DIR}"
 
-# 提取版本号（支持参数 $1 或 TARGET_QPKG_VER 环境变量注入）
+# 提取版本号（$1 为 QTS 规范内部版本号如 1.0.3.0929，$2 为对外展示版本号如 v1.0.3-20260929）
 if [ -n "$1" ]; then
     QPKG_VER="$1"
 elif [ -n "$TARGET_QPKG_VER" ]; then
@@ -16,10 +16,17 @@ elif [ -n "$TARGET_QPKG_VER" ]; then
 else
     QPKG_VER=$(grep '^QPKG_VER=' qpkg.cfg | cut -d'"' -f2)
 fi
-[ -z "$QPKG_VER" ] && QPKG_VER="1.0.3.0928"
+[ -z "$QPKG_VER" ] && QPKG_VER="1.0.3.0929"
+
+if [ -n "$2" ]; then
+    DISPLAY_VER="$2"
+else
+    DISPLAY_VER="v${QPKG_VER}"
+fi
+[ "${DISPLAY_VER#v}" = "${DISPLAY_VER}" ] && DISPLAY_VER="v${DISPLAY_VER}"
 
 echo "=========================================================="
-echo "==> Building QNAP yt-dlp Dual Packages (Version: ${QPKG_VER})"
+echo "==> Building QNAP yt-dlp Dual Packages (Version: ${QPKG_VER}, Display: ${DISPLAY_VER})"
 echo "=========================================================="
 
 # 备份初始 qpkg.cfg 与 build_version
@@ -29,7 +36,7 @@ trap 'mv -f qpkg.cfg.bak qpkg.cfg 2>/dev/null || true; mv -f shared/build_versio
 
 # 写入目标版本号
 python3 -c "import re; s=open('qpkg.cfg').read(); s=re.sub(r'QPKG_VER=.*', 'QPKG_VER=\"${QPKG_VER}\"', s); open('qpkg.cfg', 'w').write(s)"
-echo "${QPKG_VER}" > shared/build_version
+echo "${DISPLAY_VER}" > shared/build_version
 
 # 1. 确保 yt-dlp 核心文件存在（x86_64 和 arm_64）
 mkdir -p x86_64 arm_64 /tmp/ytdlp_dl_tmp

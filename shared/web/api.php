@@ -123,7 +123,12 @@ function handle_status() {
     $ffmpeg_source = $versions['ffmpeg_source'] ?? '未安装';
 
     $build_ver_file = BASE_DIR . '/build_version';
-    $qpkg_ver = file_exists($build_ver_file) ? trim(file_get_contents($build_ver_file)) : '1.0.0';
+    $raw_ver = file_exists($build_ver_file) ? trim(file_get_contents($build_ver_file)) : '1.0.3';
+    $clean_ver = ltrim($raw_ver, 'v');
+    if (strpos($clean_ver, '-') === false) {
+        $clean_ver .= '-' . date('Ymd');
+    }
+    $qpkg_ver = 'v' . $clean_ver;
 
     // 免守护进程按需调度架构：状态始终为就绪
     $daemon_alive = true;

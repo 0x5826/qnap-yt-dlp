@@ -1109,7 +1109,7 @@ endif;
                 <div class="title-meta">
                     <h1>
                         媒体下载
-                        <span class="badge-version" id="ver-badge">加载中</span>
+                        <span class="badge-version" id="ver-badge">v1.0.3-20260929</span>
                     </h1>
                     <div class="app-subtitle">基于 yt-dlp 与 FFmpeg 的高性能媒体下载套件</div>
                 </div>

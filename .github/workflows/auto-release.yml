@@ -146,7 +146,7 @@ jobs:
         if: steps.version_check.outputs.should_build == 'true'
         run: |
           chmod +x scripts/build_packages.sh
-          ./scripts/build_packages.sh "${{ steps.version_check.outputs.internal_version }}"
+          ./scripts/build_packages.sh "${{ steps.version_check.outputs.internal_version }}" "${{ steps.version_check.outputs.tag_name }}"
 
       - name: Calculate Checksums
         if: steps.version_check.outputs.should_build == 'true'
