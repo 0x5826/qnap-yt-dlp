@@ -185,7 +185,7 @@ case "$1" in
         echo "[$now_str] [RUNTIME] PHP 引擎: $PHP_BIN" >> "$DAEMON_LOG"
 
         if [ -x "$BIN_DIR/yt-dlp" ]; then
-            local ytdlp_real=$(readlink -f "$BIN_DIR/yt-dlp" 2>/dev/null || echo "")
+            ytdlp_real=$(readlink -f "$BIN_DIR/yt-dlp" 2>/dev/null || echo "")
             if [ -n "$ytdlp_real" ] && [ "$ytdlp_real" != "/usr/bin/yt-dlp" ]; then
                 ytdlp_v=$(TMPDIR="$TMP_DIR" "$BIN_DIR/yt-dlp" --version 2>/dev/null || echo "已就绪")
             else
