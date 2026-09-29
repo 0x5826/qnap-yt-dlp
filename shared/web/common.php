@@ -535,11 +535,50 @@ function is_task_process_alive($pid) {
 
 /**
  * 递归获取指定进程树的所有后代 PID（支持跨级查找孙进程）
+ * 增强：优先采用 /proc 遍历全表，零外部命令依赖；兜底使用 pgrep
  */
 function get_process_descendants($pid) {
     $pid = intval($pid);
     if ($pid <= 0) return [];
     $pids = [];
+
+    // 方式 1：Linux 内核 task children 探测
+    $children_file = "/proc/$pid/task/$pid/children";
+    if (file_exists($children_file)) {
+        $content = @file_get_contents($children_file);
+        if ($content !== false && trim($content) !== '') {
+            $parts = preg_split('/\s+/', trim($content));
+            foreach ($parts as $child_str) {
+                $c = intval($child_str);
+                if ($c > 0) {
+                    $pids[] = $c;
+                    $pids = array_merge($pids, get_process_descendants($c));
+                }
+            }
+            if (!empty($pids)) return array_values(array_unique($pids));
+        }
+    }
+
+    // 方式 2：遍历 /proc/*/stat 获取 PPID 等于本 pid 的子进程（100% 纯内核零依赖）
+    $stat_dirs = @glob('/proc/[0-9]*/stat');
+    if ($stat_dirs) {
+        foreach ($stat_dirs as $sf) {
+            $stat_content = @file_get_contents($sf);
+            if ($stat_content) {
+                if (preg_match('/^(\d+)\s+\((?:[^\)]+)\)\s+[A-Za-z]\s+(\d+)/', $stat_content, $sm)) {
+                    $c_pid = intval($sm[1]);
+                    $c_ppid = intval($sm[2]);
+                    if ($c_ppid === $pid && $c_pid > 0 && $c_pid !== $pid) {
+                        $pids[] = $c_pid;
+                        $pids = array_merge($pids, get_process_descendants($c_pid));
+                    }
+                }
+            }
+        }
+        if (!empty($pids)) return array_values(array_unique($pids));
+    }
+
+    // 方式 3：兜底使用 pgrep
     $out = @shell_exec("pgrep -P $pid 2>/dev/null");
     if (!empty($out)) {
         $lines = explode("\n", trim($out));
@@ -551,7 +590,7 @@ function get_process_descendants($pid) {
             }
         }
     }
-    return array_unique($pids);
+    return array_values(array_unique($pids));
 }
 
 /**
@@ -577,6 +616,56 @@ function kill_process_tree($pid) {
             @shell_exec("kill -9 $p 2>/dev/null");
         }
     }
+}
+
+/**
+ * 扫描全系统 /proc，强杀所有不在合法活跃 PID 清单中的孤儿脱管下载进程
+ * 专门解决任务被删除后底层 yt-dlp/ffmpeg 孙进程脱管继续跑流量的顽疾
+ */
+function sweep_orphan_download_processes($valid_pids = []) {
+    $valid_map = [];
+    foreach ($valid_pids as $vp) {
+        $vp = intval($vp);
+        if ($vp > 0) {
+            $valid_map[$vp] = true;
+            foreach (get_process_descendants($vp) as $cp) {
+                $valid_map[$cp] = true;
+            }
+        }
+    }
+
+    $killed = [];
+    $my_pid = getmypid();
+    $proc_dirs = @glob('/proc/[0-9]*', GLOB_ONLYDIR);
+    if (!$proc_dirs) return $killed;
+
+    foreach ($proc_dirs as $dir) {
+        $pid = intval(basename($dir));
+        if ($pid <= 1 || $pid === $my_pid || isset($valid_map[$pid])) {
+            continue;
+        }
+
+        $cmdline_file = $dir . '/cmdline';
+        if (!file_exists($cmdline_file)) continue;
+
+        $cmdline = @file_get_contents($cmdline_file);
+        if ($cmdline === false || empty($cmdline)) continue;
+
+        // 识别目标孤儿指纹：yt-dlp、worker.sh、或属于 ytdlp 套件目录下的 ffmpeg
+        $is_orphan = false;
+        if (strpos($cmdline, 'yt-dlp') !== false || strpos($cmdline, 'worker.sh') !== false) {
+            $is_orphan = true;
+        } elseif (strpos($cmdline, 'ffmpeg') !== false && (strpos($cmdline, 'ytdlp') !== false || (strpos($cmdline, 'CACHEDEV') !== false && strpos($cmdline, '.part') !== false))) {
+            $is_orphan = true;
+        }
+
+        if ($is_orphan) {
+            @shell_exec("kill -9 $pid 2>/dev/null");
+            $killed[] = $pid;
+        }
+    }
+
+    return $killed;
 }
 
 /**

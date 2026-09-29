@@ -516,6 +516,21 @@ mutate_tasks(function($tasks) use ($max_concurrent, $now) {
     return $tasks_updated ? $tasks : null;
 });
 
+// 3. 全局脱管孤儿下载进程主动巡检与强杀
+$active_tasks = get_tasks();
+$valid_pids = [];
+foreach ($active_tasks as $at) {
+    $st = $at['status'] ?? '';
+    if ($st === 'downloading' || $st === 'merging') {
+        $vpid = intval($at['pid'] ?? 0);
+        if ($vpid > 0) $valid_pids[] = $vpid;
+    }
+}
+$purged_pids = sweep_orphan_download_processes($valid_pids);
+if (!empty($purged_pids)) {
+    @file_put_contents(CONF_DIR . '/logs/daemon.log', "[" . date('Y-m-d H:i:s') . "] [SYSTEM] 自动巡检并终结脱管孤儿下载进程: " . implode(', ', $purged_pids) . "\n", FILE_APPEND | LOCK_EX);
+}
+
 } finally {
     if ($fp) {
         flock($fp, LOCK_UN);

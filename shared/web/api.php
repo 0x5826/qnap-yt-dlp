@@ -191,6 +191,10 @@ function handle_control_service($input) {
             break;
         case 'stop':
             $out = shell_exec(escapeshellarg($sh) . " stop 2>&1");
+            $purged = sweep_orphan_download_processes([]);
+            if (!empty($purged)) {
+                $out .= "\nCleaned orphan processes: " . implode(', ', $purged);
+            }
             break;
         case 'restart':
             $out = shell_exec(escapeshellarg($sh) . " restart 2>&1");
@@ -726,6 +730,14 @@ function handle_delete_task($input) {
     });
 
     if ($found) {
+        $remaining_tasks = get_tasks();
+        $valid_pids = [];
+        foreach ($remaining_tasks as $rt) {
+            if (($rt['status'] ?? '') === 'downloading' && !empty($rt['pid'])) {
+                $valid_pids[] = intval($rt['pid']);
+            }
+        }
+        sweep_orphan_download_processes($valid_pids);
         json_response(['code' => 0, 'message' => '任务已彻底删除']);
     } else {
         json_response(['code' => 404, 'message' => '未找到指定任务'], 404);

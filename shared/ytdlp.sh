@@ -209,17 +209,32 @@ case "$1" in
 
     stop)
         echo "Stopping all active $QPKG_NAME download tasks..."
+        killall -15 yt-dlp ffmpeg 2>/dev/null || true
         pkill -15 -f 'worker.sh' 2>/dev/null || true
         pkill -15 -f 'yt-dlp' 2>/dev/null || true
         pkill -15 -f 'ffmpeg' 2>/dev/null || true
         sleep 0.5
+
+        # 深度扫描 /proc 强制终止所有脱管孤儿下载进程（零依赖 BusyBox 外部命令）
+        for pdir in /proc/[0-9]*; do
+            [ -d "$pdir" ] || continue
+            p="${pdir#/proc/}"
+            cmd=$(cat "$pdir/cmdline" 2>/dev/null | tr '\0' ' ')
+            case "$cmd" in
+                *yt-dlp*|*worker.sh*)
+                    kill -9 "$p" 2>/dev/null || true
+                    ;;
+            esac
+        done
+
+        killall -9 yt-dlp ffmpeg 2>/dev/null || true
         pkill -9 -f 'worker.sh' 2>/dev/null || true
         pkill -9 -f 'yt-dlp' 2>/dev/null || true
         pkill -9 -f 'ffmpeg' 2>/dev/null || true
         rm -f "$PID_FILE" 2>/dev/null || true
 
         now_str=$(date '+%Y-%m-%d %H:%M:%S')
-        echo "[$now_str] [SYSTEM] 收到停机指令，已终止所有活跃下载进程。" >> "$DAEMON_LOG"
+        echo "[$now_str] [SYSTEM] 收到停机指令，已终止所有活跃下载与脱管孤儿进程。" >> "$DAEMON_LOG"
         echo "$QPKG_NAME tasks stopped."
         ;;
 
