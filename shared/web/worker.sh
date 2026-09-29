@@ -12,6 +12,14 @@ if [ -z "$TASK_ID" ] || [ -z "$TASK_FILE" ] || [ ! -f "$TASK_FILE" ]; then
     exit 1
 fi
 
+# 严格安全校验：防止路径穿越注入
+case "$TASK_ID" in
+    */*|*..*|*\\*)
+        echo "Invalid task ID: $TASK_ID"
+        exit 1
+        ;;
+esac
+
 WEB_DIR="$(cd "$(dirname "$0")" && pwd)"
 BASE_DIR="$(cd "$WEB_DIR/.." && pwd)"
 CONF_DIR="$BASE_DIR/conf"
@@ -47,14 +55,18 @@ if [ -f "$PID_FILE" ]; then
     fi
 fi
 
-# 优雅转发信号，防止 yt-dlp 和 ffmpeg 产生孤儿子进程
+# 优雅转发信号，递归强杀所有后代子进程，彻底消除 yt-dlp 和 ffmpeg 孤儿子进程
 cleanup_children() {
+    for child in $(pgrep -P $$ 2>/dev/null); do
+        pkill -P "$child" 2>/dev/null || true
+        kill -9 "$child" 2>/dev/null || true
+    done
     pkill -P $$ 2>/dev/null || true
     kill $(jobs -p) 2>/dev/null || true
     rm -f "$PID_FILE" 2>/dev/null || true
     exit 143
 }
-trap 'cleanup_children' TERM INT
+trap 'cleanup_children' TERM INT HUP QUIT
 
 echo "$$" > "$PID_FILE"
 rm -f "$EXIT_CODE_FILE" "$PROGRESS_FILE"

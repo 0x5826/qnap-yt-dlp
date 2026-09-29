@@ -22,36 +22,36 @@ if (!$ytdlp_bin) {
     exit(1);
 }
 
-$cmd = 'TMPDIR=' . escapeshellarg(CUSTOM_TMP_DIR) . ' ' . escapeshellcmd($ytdlp_bin);
+$cmd = 'TMPDIR=' . safe_escapeshellarg(CUSTOM_TMP_DIR) . ' ' . safe_escapeshellarg($ytdlp_bin);
 
 // FFmpeg location
 $ffmpeg_bin = get_binary_path('ffmpeg');
 if ($ffmpeg_bin) {
-    $cmd .= ' --ffmpeg-location ' . escapeshellarg(dirname($ffmpeg_bin));
+    $cmd .= ' --ffmpeg-location ' . safe_escapeshellarg(dirname($ffmpeg_bin));
 }
 
 // Cookies support
 if (file_exists(COOKIES_FILE) && filesize(COOKIES_FILE) > 10) {
-    $cmd .= ' --cookies ' . escapeshellarg(COOKIES_FILE);
+    $cmd .= ' --cookies ' . safe_escapeshellarg(COOKIES_FILE);
 }
 
 // Proxy configuration
 $proxy = !empty($task['proxy']) ? $task['proxy'] : $config['proxy'];
 if (!empty($proxy)) {
-    $cmd .= ' --proxy ' . escapeshellarg($proxy);
+    $cmd .= ' --proxy ' . safe_escapeshellarg($proxy);
 }
 
 // Rate limit
 $rate_limit = !empty($task['rate_limit']) ? $task['rate_limit'] : $config['rate_limit'];
-if (!empty($rate_limit)) {
-    $cmd .= ' --limit-rate ' . escapeshellarg($rate_limit);
+if (!empty($rate_limit) && preg_match('/^[0-9]+[kKmMgG]?$/', $rate_limit)) {
+    $cmd .= ' --limit-rate ' . safe_escapeshellarg($rate_limit);
 }
 
 // Continue partially downloaded files & error tolerance (-i ignores non-fatal postprocessing errors)
 $cmd .= ' -c --no-mtime -i';
 
 // Output directory & filename template
-$download_dir = !empty($task['download_dir']) ? $task['download_dir'] : $config['download_dir'];
+$download_dir = sanitize_download_dir(!empty($task['download_dir']) ? $task['download_dir'] : $config['download_dir']);
 if (!is_dir($download_dir)) {
     @mkdir($download_dir, 0755, true);
 }
@@ -68,15 +68,15 @@ $cmd .= ' -o ' . safe_escapeshellarg($output_path);
 // Audio only mode
 if (!empty($task['is_audio_only'])) {
     $audio_ext = !empty($task['audio_format']) ? $task['audio_format'] : 'mp3';
-    $cmd .= ' -x --audio-format ' . escapeshellarg($audio_ext) . ' --audio-quality 0';
+    $cmd .= ' -x --audio-format ' . safe_escapeshellarg($audio_ext) . ' --audio-quality 0';
 } else {
     // Video format selection
     $format = !empty($task['format_id']) ? $task['format_id'] : $config['default_video_quality'];
-    $cmd .= ' -f ' . escapeshellarg($format);
+    $cmd .= ' -f ' . safe_escapeshellarg($format);
 
     $container = !empty($task['container']) ? $task['container'] : $config['default_container'];
     if (!empty($container) && $container !== 'default') {
-        $cmd .= ' --merge-output-format ' . escapeshellarg($container);
+        $cmd .= ' --merge-output-format ' . safe_escapeshellarg($container);
     }
 }
 
@@ -88,10 +88,10 @@ if (!empty($task['subtitles']) && $task['subtitles'] !== 'none') {
         if (strpos($sub_langs, '-danmaku') === false) {
             $sub_langs .= ',-danmaku*';
         }
-        $cmd .= ' --sub-langs ' . escapeshellarg($sub_langs);
+        $cmd .= ' --sub-langs ' . safe_escapeshellarg($sub_langs);
     } else {
         // 排除 Bilibili 等平台的 XML 弹幕，防止 FFmpeg convert-subs 抛出 Invalid data found 报错
-        $cmd .= ' --sub-langs ' . escapeshellarg('all,-danmaku*');
+        $cmd .= ' --sub-langs ' . safe_escapeshellarg('all,-danmaku*');
     }
     if (!empty($task['auto_subs'])) {
         $cmd .= ' --write-auto-subs';
@@ -126,15 +126,20 @@ if ($embed_metadata) {
 }
 
 // Custom user args
-$custom_args = !empty($task['custom_args']) ? $task['custom_args'] : $config['custom_args'];
+$custom_args = !empty($task['custom_args']) ? $task['custom_args'] : ($config['custom_args'] ?? '');
 if (!empty($custom_args)) {
-    $cmd .= ' ' . $custom_args;
+    // 严格过滤高危 shell 控制字符，只允许合法参数
+    if (preg_match('/[;&|`$\\\>\<]/', $custom_args)) {
+        @file_put_contents(CONF_DIR . '/logs/daemon.log', "[" . date('Y-m-d H:i:s') . "] [WARN] 任务包含高危参数字符，已自动过滤: " . htmlspecialchars($custom_args) . "\n", FILE_APPEND | LOCK_EX);
+    } else {
+        $cmd .= ' ' . trim($custom_args);
+    }
 }
 
 // Progress template for machine parsing (download: is stripped by yt-dlp as type prefix)
-$cmd .= ' --newline --progress-template ' . escapeshellarg('download:YTDLP_PROGRESS:%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s|%(progress._downloaded_bytes_str)s|%(progress._total_bytes_str)s');
+$cmd .= ' --newline --progress-template ' . safe_escapeshellarg('download:YTDLP_PROGRESS:%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s|%(progress._downloaded_bytes_str)s|%(progress._total_bytes_str)s');
 
-// Target URL
-$cmd .= ' ' . escapeshellarg($task['url']);
+// Target URL: 增加 -- 隔断标志，彻底阻断以 - 或 -- 开头的链接篡改命令参数
+$cmd .= ' -- ' . safe_escapeshellarg($task['url']);
 
 echo $cmd;

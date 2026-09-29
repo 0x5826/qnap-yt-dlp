@@ -212,11 +212,74 @@ function handle_toggle_autostart($input) {
     ]);
 }
 
+/**
+ * 校验并清理 Task ID，阻断路径穿越或特殊字符注入
+ */
+function validate_task_id($task_id) {
+    $task_id = trim((string)$task_id);
+    if (empty($task_id) || !preg_match('/^[a-zA-Z0-9_\-]+$/', $task_id)) {
+        json_response(['code' => 400, 'message' => '非法或无效的任务 ID 格式'], 400);
+        exit;
+    }
+    return $task_id;
+}
+
 function handle_save_config($input) {
-    if (empty($input)) {
+    if (empty($input) || !is_array($input)) {
         json_response(['code' => 400, 'message' => '参数不能为空'], 400);
     }
-    if (save_app_config($input)) {
+
+    $sanitized = [];
+
+    if (isset($input['autostart'])) {
+        $sanitized['autostart'] = !empty($input['autostart']) ? 1 : 0;
+    }
+    if (isset($input['download_dir'])) {
+        $sanitized['download_dir'] = sanitize_download_dir($input['download_dir']);
+    }
+    if (isset($input['filename_template'])) {
+        $tpl = trim($input['filename_template']);
+        $tpl = preg_replace('/%\(title\)(?:\.[0-9]+)?s/', '%(title).40s', $tpl);
+        $sanitized['filename_template'] = $tpl ?: '%(extractor_key)s - %(title).40s [%(id)s].%(ext)s';
+    }
+    if (isset($input['max_concurrent_tasks'])) {
+        $sanitized['max_concurrent_tasks'] = max(1, min(16, intval($input['max_concurrent_tasks'])));
+    }
+    if (isset($input['rate_limit'])) {
+        $rl = trim($input['rate_limit']);
+        if ($rl !== '' && !preg_match('/^[0-9]+[kKmMgG]?$/', $rl)) {
+            json_response(['code' => 400, 'message' => '限速格式错误，请输入如 500K、2M、10M 或纯数字'], 400);
+        }
+        $sanitized['rate_limit'] = $rl;
+    }
+    if (isset($input['proxy'])) {
+        $sanitized['proxy'] = trim($input['proxy']);
+    }
+    if (isset($input['embed_thumbnail'])) {
+        $sanitized['embed_thumbnail'] = (bool)$input['embed_thumbnail'];
+    }
+    if (isset($input['embed_metadata'])) {
+        $sanitized['embed_metadata'] = (bool)$input['embed_metadata'];
+    }
+    if (isset($input['default_video_quality'])) {
+        $sanitized['default_video_quality'] = trim($input['default_video_quality']);
+    }
+    if (isset($input['default_container'])) {
+        $c = strtolower(trim($input['default_container']));
+        $sanitized['default_container'] = in_array($c, ['mp4', 'mkv', 'webm', 'default']) ? $c : 'mp4';
+    }
+    if (isset($input['default_subtitles'])) {
+        $sanitized['default_subtitles'] = trim($input['default_subtitles']);
+    }
+    if (isset($input['custom_args'])) {
+        $ca = trim($input['custom_args']);
+        if (preg_match('/[;&|`$\\\>\<]/', $ca)) {
+            json_response(['code' => 400, 'message' => '自定义参数包含非法或高危字符，已被拦截拒绝'], 400);
+        }
+        $sanitized['custom_args'] = $ca;
+    }
+
+    if (save_app_config($sanitized)) {
         json_response(['code' => 0, 'message' => '全局配置已成功保存']);
     } else {
         json_response(['code' => 500, 'message' => '保存设置失败，请检查写入权限'], 500);
@@ -225,7 +288,7 @@ function handle_save_config($input) {
 
 function handle_parse_url($input) {
     $url = trim($input['url'] ?? '');
-    if (empty($url) || !filter_var($url, FILTER_VALIDATE_URL)) {
+    if (empty($url) || !filter_var($url, FILTER_VALIDATE_URL) || strpos($url, '-') === 0) {
         json_response(['code' => 400, 'message' => '请输入有效的视频链接 (URL)'], 400);
     }
 
@@ -235,16 +298,16 @@ function handle_parse_url($input) {
     }
 
     $config = get_app_config();
-    $cmd = 'TMPDIR=' . escapeshellarg(CUSTOM_TMP_DIR) . ' ' . escapeshellarg($ytdlp_bin) . ' -J --no-warnings --no-check-certificates --flat-playlist --socket-timeout 20';
+    $cmd = 'TMPDIR=' . safe_escapeshellarg(CUSTOM_TMP_DIR) . ' ' . safe_escapeshellarg($ytdlp_bin) . ' -J --no-warnings --no-check-certificates --flat-playlist --socket-timeout 20';
 
     if (!empty($config['proxy'])) {
-        $cmd .= ' --proxy ' . escapeshellarg($config['proxy']);
+        $cmd .= ' --proxy ' . safe_escapeshellarg($config['proxy']);
     }
     if (file_exists(COOKIES_FILE) && filesize(COOKIES_FILE) > 10) {
-        $cmd .= ' --cookies ' . escapeshellarg(COOKIES_FILE);
+        $cmd .= ' --cookies ' . safe_escapeshellarg(COOKIES_FILE);
     }
 
-    $cmd .= ' ' . escapeshellarg($url);
+    $cmd .= ' -- ' . safe_escapeshellarg($url);
 
     $json_output = shell_exec($cmd . ' 2>&1');
     $data = json_decode($json_output, true);
@@ -364,7 +427,26 @@ function handle_get_tasks() {
     unset($t);
 
     if ($needs_save) {
-        save_tasks($tasks);
+        mutate_tasks(function($cur_tasks) use ($tasks) {
+            $task_map = [];
+            foreach ($tasks as $t) {
+                if (!empty($t['id'])) $task_map[$t['id']] = $t;
+            }
+            foreach ($cur_tasks as &$ct) {
+                $cid = $ct['id'] ?? '';
+                if (isset($task_map[$cid])) {
+                    if (!empty($task_map[$cid]['total_size'])) $ct['total_size'] = $task_map[$cid]['total_size'];
+                    if (!empty($task_map[$cid]['target_file'])) $ct['target_file'] = $task_map[$cid]['target_file'];
+                    if (!empty($task_map[$cid]['final_speed'])) {
+                        $ct['final_speed'] = $task_map[$cid]['final_speed'];
+                        $ct['speed'] = $task_map[$cid]['final_speed'];
+                    }
+                }
+            }
+            unset($ct);
+            return $cur_tasks;
+        });
+        $tasks = get_tasks();
     }
 
     $tasks = array_reverse($tasks);
@@ -373,8 +455,8 @@ function handle_get_tasks() {
 
 function handle_add_task($input) {
     $url = trim($input['url'] ?? '');
-    if (empty($url)) {
-        json_response(['code' => 400, 'message' => '目标 URL 不能为空'], 400);
+    if (empty($url) || !filter_var($url, FILTER_VALIDATE_URL) || strpos($url, '-') === 0) {
+        json_response(['code' => 400, 'message' => '请输入有效的视频链接 (URL)'], 400);
     }
 
     $config = get_app_config();
@@ -389,6 +471,8 @@ function handle_add_task($input) {
     if (!empty($platform) && !empty($media_spec) && strpos($title_raw, ' - ') === false) {
         $standard_title = "{$platform} - {$title_raw} - {$media_spec}";
     }
+
+    $download_dir = sanitize_download_dir(!empty($input['download_dir']) ? $input['download_dir'] : $config['download_dir']);
 
     $new_task = [
         'id' => $task_id,
@@ -406,7 +490,7 @@ function handle_add_task($input) {
         'embed_subtitles' => isset($input['embed_subtitles']) ? (bool)$input['embed_subtitles'] : true,
         'embed_thumbnail' => isset($input['embed_thumbnail']) ? (bool)$input['embed_thumbnail'] : (bool)$config['embed_thumbnail'],
         'embed_metadata' => isset($input['embed_metadata']) ? (bool)$input['embed_metadata'] : (bool)$config['embed_metadata'],
-        'download_dir' => !empty($input['download_dir']) ? $input['download_dir'] : $config['download_dir'],
+        'download_dir' => $download_dir,
         'filename_template' => !empty($input['filename_template']) ? $input['filename_template'] : $config['filename_template'],
         'rate_limit' => $input['rate_limit'] ?? '',
         'proxy' => $input['proxy'] ?? '',
@@ -422,9 +506,10 @@ function handle_add_task($input) {
         'updated_at' => time()
     ];
 
-    $tasks = get_tasks();
-    $tasks[] = $new_task;
-    save_tasks($tasks);
+    mutate_tasks(function($tasks) use ($new_task) {
+        $tasks[] = $new_task;
+        return $tasks;
+    });
 
     trigger_scheduler_tick();
 
@@ -438,13 +523,14 @@ function handle_add_batch_tasks($input) {
     }
 
     $config = get_app_config();
-    $tasks = get_tasks();
     $added_count = 0;
     $now = time();
+    $download_dir = sanitize_download_dir(!empty($input['download_dir']) ? $input['download_dir'] : $config['download_dir']);
+    $new_tasks_list = [];
 
     foreach ($urls as $idx => $url) {
         $url = trim($url);
-        if (empty($url) || !filter_var($url, FILTER_VALIDATE_URL)) continue;
+        if (empty($url) || !filter_var($url, FILTER_VALIDATE_URL) || strpos($url, '-') === 0) continue;
 
         $task_id = 'task_' . date('ymdHis', $now) . '_' . substr(md5(uniqid('', true) . $idx), 0, 4);
         $platform = get_media_platform_name([], $url);
@@ -459,7 +545,7 @@ function handle_add_batch_tasks($input) {
         // 统一标准任务名称：视频平台 - 批量任务 - 下载参数配置
         $standard_batch_title = "{$platform} - 批量任务 - {$spec_desc}";
 
-        $new_task = [
+        $new_tasks_list[] = [
             'id' => $task_id,
             'url' => $url,
             'title' => $standard_batch_title,
@@ -475,7 +561,7 @@ function handle_add_batch_tasks($input) {
             'embed_subtitles' => isset($input['embed_subtitles']) ? (bool)$input['embed_subtitles'] : true,
             'embed_thumbnail' => isset($input['embed_thumbnail']) ? (bool)$input['embed_thumbnail'] : (bool)$config['embed_thumbnail'],
             'embed_metadata' => isset($input['embed_metadata']) ? (bool)$input['embed_metadata'] : (bool)$config['embed_metadata'],
-            'download_dir' => !empty($input['download_dir']) ? $input['download_dir'] : $config['download_dir'],
+            'download_dir' => $download_dir,
             'filename_template' => !empty($input['filename_template']) ? $input['filename_template'] : $config['filename_template'],
             'rate_limit' => $input['rate_limit'] ?? '',
             'proxy' => $input['proxy'] ?? '',
@@ -491,12 +577,13 @@ function handle_add_batch_tasks($input) {
             'updated_at' => $now
         ];
 
-        $tasks[] = $new_task;
         $added_count++;
     }
 
     if ($added_count > 0) {
-        save_tasks($tasks);
+        mutate_tasks(function($tasks) use ($new_tasks_list) {
+            return array_merge($tasks, $new_tasks_list);
+        });
         trigger_scheduler_tick();
         json_response(['code' => 0, 'message' => "已成功将 {$added_count} 个任务批量加入下载队列", 'data' => ['added_count' => $added_count]]);
     } else {
@@ -505,34 +592,35 @@ function handle_add_batch_tasks($input) {
 }
 
 function handle_pause_task($input) {
-    $task_id = $input['task_id'] ?? '';
-    $tasks = get_tasks();
+    $task_id = validate_task_id($input['task_id'] ?? '');
     $found = false;
 
-    foreach ($tasks as &$t) {
-        if ($t['id'] === $task_id) {
-            $found = true;
-            $task_dir = LOGS_DIR . '/tasks/' . $task_id;
-            $pid = intval($t['pid'] ?? 0);
-            if ($pid <= 0 && file_exists($task_dir . '/worker.pid')) {
-                $pid = intval(trim(@file_get_contents($task_dir . '/worker.pid')));
-            }
-            if ($pid > 0) {
-                kill_process_tree($pid);
-            }
-            @unlink($task_dir . '/worker.pid');
+    mutate_tasks(function($tasks) use ($task_id, &$found) {
+        foreach ($tasks as &$t) {
+            if ($t['id'] === $task_id) {
+                $found = true;
+                $task_dir = LOGS_DIR . '/tasks/' . $task_id;
+                $pid = intval($t['pid'] ?? 0);
+                if ($pid <= 0 && file_exists($task_dir . '/worker.pid')) {
+                    $pid = intval(trim(@file_get_contents($task_dir . '/worker.pid')));
+                }
+                if ($pid > 0) {
+                    kill_process_tree($pid);
+                }
+                @unlink($task_dir . '/worker.pid');
 
-            $t['status'] = 'paused';
-            $t['speed'] = '--';
-            $t['pid'] = 0;
-            $t['updated_at'] = time();
-            break;
+                $t['status'] = 'paused';
+                $t['speed'] = '--';
+                $t['pid'] = 0;
+                $t['updated_at'] = time();
+                break;
+            }
         }
-    }
-    unset($t);
+        unset($t);
+        return $found ? $tasks : null;
+    });
 
     if ($found) {
-        save_tasks($tasks);
         json_response(['code' => 0, 'message' => '任务已暂停']);
     } else {
         json_response(['code' => 404, 'message' => '未找到指定任务'], 404);
@@ -540,22 +628,23 @@ function handle_pause_task($input) {
 }
 
 function handle_resume_task($input) {
-    $task_id = $input['task_id'] ?? '';
-    $tasks = get_tasks();
+    $task_id = validate_task_id($input['task_id'] ?? '');
     $found = false;
 
-    foreach ($tasks as &$t) {
-        if ($t['id'] === $task_id) {
-            $found = true;
-            $t['status'] = 'pending';
-            $t['updated_at'] = time();
-            break;
+    mutate_tasks(function($tasks) use ($task_id, &$found) {
+        foreach ($tasks as &$t) {
+            if ($t['id'] === $task_id) {
+                $found = true;
+                $t['status'] = 'pending';
+                $t['updated_at'] = time();
+                break;
+            }
         }
-    }
-    unset($t);
+        unset($t);
+        return $found ? $tasks : null;
+    });
 
     if ($found) {
-        save_tasks($tasks);
         trigger_scheduler_tick();
         json_response(['code' => 0, 'message' => '任务已重新加入排队']);
     } else {
@@ -564,38 +653,39 @@ function handle_resume_task($input) {
 }
 
 function handle_retry_task($input) {
-    $task_id = $input['task_id'] ?? '';
-    $tasks = get_tasks();
+    $task_id = validate_task_id($input['task_id'] ?? '');
     $found = false;
 
-    foreach ($tasks as &$t) {
-        if ($t['id'] === $task_id) {
-            $found = true;
-            $task_dir = LOGS_DIR . '/tasks/' . $task_id;
-            $pid = intval($t['pid'] ?? 0);
-            if ($pid <= 0 && file_exists($task_dir . '/worker.pid')) {
-                $pid = intval(trim(@file_get_contents($task_dir . '/worker.pid')));
-            }
-            if ($pid > 0) {
-                kill_process_tree($pid);
-            }
-            @unlink($task_dir . '/worker.pid');
-            @unlink($task_dir . '/exit_code');
+    mutate_tasks(function($tasks) use ($task_id, &$found) {
+        foreach ($tasks as &$t) {
+            if ($t['id'] === $task_id) {
+                $found = true;
+                $task_dir = LOGS_DIR . '/tasks/' . $task_id;
+                $pid = intval($t['pid'] ?? 0);
+                if ($pid <= 0 && file_exists($task_dir . '/worker.pid')) {
+                    $pid = intval(trim(@file_get_contents($task_dir . '/worker.pid')));
+                }
+                if ($pid > 0) {
+                    kill_process_tree($pid);
+                }
+                @unlink($task_dir . '/worker.pid');
+                @unlink($task_dir . '/exit_code');
 
-            $t['status'] = 'pending';
-            $t['error_message'] = '';
-            $t['progress'] = 0;
-            $t['speed'] = '--';
-            $t['eta'] = '--';
-            $t['pid'] = 0;
-            $t['updated_at'] = time();
-            break;
+                $t['status'] = 'pending';
+                $t['error_message'] = '';
+                $t['progress'] = 0;
+                $t['speed'] = '--';
+                $t['eta'] = '--';
+                $t['pid'] = 0;
+                $t['updated_at'] = time();
+                break;
+            }
         }
-    }
-    unset($t);
+        unset($t);
+        return $found ? $tasks : null;
+    });
 
     if ($found) {
-        save_tasks($tasks);
         trigger_scheduler_tick();
         json_response(['code' => 0, 'message' => '任务已重置并重新加入队列']);
     } else {
@@ -604,32 +694,33 @@ function handle_retry_task($input) {
 }
 
 function handle_delete_task($input) {
-    $task_id = $input['task_id'] ?? '';
-    $tasks = get_tasks();
-    $new_tasks = [];
+    $task_id = validate_task_id($input['task_id'] ?? '');
     $found = false;
 
-    foreach ($tasks as $t) {
-        if ($t['id'] === $task_id) {
-            $found = true;
-            $task_dir = LOGS_DIR . '/tasks/' . $task_id;
-            $pid = intval($t['pid'] ?? 0);
-            if ($pid <= 0 && file_exists($task_dir . '/worker.pid')) {
-                $pid = intval(trim(@file_get_contents($task_dir . '/worker.pid')));
+    mutate_tasks(function($tasks) use ($task_id, &$found) {
+        $new_tasks = [];
+        foreach ($tasks as $t) {
+            if ($t['id'] === $task_id) {
+                $found = true;
+                $task_dir = LOGS_DIR . '/tasks/' . $task_id;
+                $pid = intval($t['pid'] ?? 0);
+                if ($pid <= 0 && file_exists($task_dir . '/worker.pid')) {
+                    $pid = intval(trim(@file_get_contents($task_dir . '/worker.pid')));
+                }
+                if ($pid > 0) {
+                    kill_process_tree($pid);
+                }
+                if (is_dir($task_dir)) {
+                    shell_exec("rm -rf " . safe_escapeshellarg($task_dir));
+                }
+            } else {
+                $new_tasks[] = $t;
             }
-            if ($pid > 0) {
-                kill_process_tree($pid);
-            }
-            if (is_dir($task_dir)) {
-                shell_exec("rm -rf " . escapeshellarg($task_dir));
-            }
-        } else {
-            $new_tasks[] = $t;
         }
-    }
+        return $found ? $new_tasks : null;
+    });
 
     if ($found) {
-        save_tasks($new_tasks);
         json_response(['code' => 0, 'message' => '任务已彻底删除']);
     } else {
         json_response(['code' => 404, 'message' => '未找到指定任务'], 404);
@@ -637,34 +728,35 @@ function handle_delete_task($input) {
 }
 
 function handle_clear_completed() {
-    $tasks = get_tasks();
-    $filtered = [];
-    foreach ($tasks as $t) {
-        if (($t['status'] ?? '') !== 'completed') {
-            $filtered[] = $t;
-        } else {
-            $task_dir = LOGS_DIR . '/tasks/' . ($t['id'] ?? '');
-            if (is_dir($task_dir)) {
-                @shell_exec("rm -rf " . escapeshellarg($task_dir));
+    mutate_tasks(function($tasks) {
+        $filtered = [];
+        foreach ($tasks as $t) {
+            if (($t['status'] ?? '') !== 'completed') {
+                $filtered[] = $t;
+            } else {
+                $task_dir = LOGS_DIR . '/tasks/' . ($t['id'] ?? '');
+                if (is_dir($task_dir)) {
+                    @shell_exec("rm -rf " . safe_escapeshellarg($task_dir));
+                }
             }
         }
-    }
-    save_tasks($filtered);
+        return $filtered;
+    });
     json_response(['code' => 0, 'message' => '已清除所有已完成任务']);
 }
 
 function handle_get_task_log() {
-    $task_id = $_GET['task_id'] ?? '';
+    $task_id = validate_task_id($_GET['task_id'] ?? ($_POST['task_id'] ?? ''));
     $log_file = LOGS_DIR . '/tasks/' . $task_id . '/output.log';
     if (!file_exists($log_file)) {
         json_response(['code' => 0, 'data' => ['log' => '暂无日志输出。']]);
     }
-    $content = shell_exec("tail -n 300 " . escapeshellarg($log_file));
+    $content = shell_exec("tail -n 300 " . safe_escapeshellarg($log_file));
     json_response(['code' => 0, 'data' => ['log' => $content ?: '']]);
 }
 
 function handle_get_media_info() {
-    $task_id = $_GET['task_id'] ?? ($_POST['task_id'] ?? '');
+    $task_id = validate_task_id($_GET['task_id'] ?? ($_POST['task_id'] ?? ''));
     if (empty($task_id)) {
         json_response(['code' => 400, 'message' => '缺少任务 ID'], 400);
     }

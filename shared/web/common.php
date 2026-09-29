@@ -178,28 +178,138 @@ function save_app_config($data) {
 }
 
 /**
- * 读取任务列表
+ * 严格校验并规范化下载存储目录，杜绝路径穿越与非安全系统目录写入
+ */
+function sanitize_download_dir($path) {
+    $path = trim((string)$path);
+    if (empty($path)) {
+        return '/share/Download';
+    }
+
+    // 规范化路径并消除相对穿越序列 (..)
+    $parts = explode('/', str_replace('\\', '/', $path));
+    $clean_parts = [];
+    foreach ($parts as $p) {
+        $p = trim($p);
+        if ($p === '' || $p === '.') continue;
+        if ($p === '..') {
+            array_pop($clean_parts);
+        } else {
+            $clean_parts[] = $p;
+        }
+    }
+
+    $normalized = '/' . implode('/', $clean_parts);
+
+    // 严格限制：必须属于 /share 共享存储卷或 QPKG 自身目录，坚决禁止逃逸到 /etc, /root 等系统关键根分区
+    if (strpos($normalized, '/share') !== 0 && strpos($normalized, BASE_DIR) !== 0) {
+        return '/share/Download';
+    }
+
+    return $normalized;
+}
+
+/**
+ * 读取任务列表（带防损坏自愈与备份恢复机制）
  */
 function get_tasks() {
     if (file_exists(TASKS_FILE)) {
         $content = @file_get_contents(TASKS_FILE);
-        $data = json_decode($content, true);
-        if (is_array($data) && isset($data['tasks'])) {
-            return $data['tasks'];
+        if ($content !== false && strlen(trim($content)) > 0) {
+            $data = json_decode($content, true);
+            if (is_array($data) && isset($data['tasks']) && is_array($data['tasks'])) {
+                return $data['tasks'];
+            }
+
+            // 数据解析失败：触发自动容错与自愈备份，杜绝清空全量任务
+            $corrupt_backup = CONF_DIR . '/tasks.corrupt.' . date('Ymd_His') . '.json';
+            @copy(TASKS_FILE, $corrupt_backup);
+            @file_put_contents(CONF_DIR . '/logs/daemon.log', "[" . date('Y-m-d H:i:s') . "] [ERROR] 检测到 tasks.json 格式异常，已触发安全自愈备份至 $corrupt_backup\n", FILE_APPEND | LOCK_EX);
+
+            // 尝试从最近的滚动备份恢复
+            $bak_file = TASKS_FILE . '.bak';
+            if (file_exists($bak_file)) {
+                $bak_content = @file_get_contents($bak_file);
+                $bak_data = json_decode($bak_content, true);
+                if (is_array($bak_data) && isset($bak_data['tasks']) && is_array($bak_data['tasks'])) {
+                    @file_put_contents(CONF_DIR . '/logs/daemon.log', "[" . date('Y-m-d H:i:s') . "] [RECOVER] 已成功从 tasks.json.bak 滚动备份恢复任务列表\n", FILE_APPEND | LOCK_EX);
+                    return $bak_data['tasks'];
+                }
+            }
         }
     }
     return [];
 }
 
 /**
- * 保存任务列表
+ * 保存任务列表（带滚动备份与工业级原子写入）
  */
 function save_tasks($tasks) {
+    if (!is_array($tasks)) {
+        return false;
+    }
+    // 写入前保留一份最新可用镜像备份，防范突然掉电或非法中断
+    if (file_exists(TASKS_FILE) && filesize(TASKS_FILE) > 10) {
+        @copy(TASKS_FILE, TASKS_FILE . '.bak');
+    }
     $payload = [
         'updated_at' => time(),
         'tasks' => array_values($tasks)
     ];
-    return atomic_write_file(TASKS_FILE, json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+    $json = json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    return atomic_write_file(TASKS_FILE, $json);
+}
+
+/**
+ * 进程级互斥事务修改任务列表
+ * 跨 Web API 与 Scheduler 进程加持独占文件锁，彻底根除高并发下的读写丢失竞争 (Lost Updates)
+ *
+ * @param callable $callback 接收当前 $tasks 数组并返回修改后的 $tasks，若返回 null 则放弃写盘
+ * @return mixed 返回 $callback 的执行结果
+ */
+function mutate_tasks(callable $callback) {
+    $lock_file = CONF_DIR . '/.tasks.lock';
+    $fp = @fopen($lock_file, 'c+');
+    if (!$fp) {
+        // Fallback 兼容
+        $tasks = get_tasks();
+        $result = $callback($tasks);
+        if ($result !== null && is_array($result)) {
+            save_tasks($result);
+        }
+        return $result;
+    }
+
+    $locked = false;
+    $start = microtime(true);
+    // 非阻塞轮询最多等待 3 秒，杜绝死锁僵死
+    while (microtime(true) - $start < 3.0) {
+        if (flock($fp, LOCK_EX | LOCK_NB)) {
+            $locked = true;
+            break;
+        }
+        usleep(25000); // 25ms
+    }
+
+    if (!$locked) {
+        // 阻塞兜底锁定
+        flock($fp, LOCK_EX);
+        $locked = true;
+    }
+
+    try {
+        $tasks = get_tasks();
+        $result = $callback($tasks);
+        if ($result !== null && is_array($result)) {
+            save_tasks($result);
+        }
+        return $result;
+    } finally {
+        if ($locked) {
+            flock($fp, LOCK_UN);
+        }
+        fclose($fp);
+    }
 }
 
 /**
@@ -398,19 +508,74 @@ function is_process_running($pid) {
 }
 
 /**
- * 可靠终止指定 PID 及其全部子进程树 (yt-dlp, ffmpeg)
+ * 深入校验任务进程是否存活且命令指纹匹配
+ * 防范系统重启或长期运行后 PID 回绕复用导致的误判挂起
+ */
+function is_task_process_alive($pid) {
+    $pid = intval($pid);
+    if ($pid <= 0) return false;
+    if (!is_process_running($pid)) return false;
+
+    // 深度指纹校验：检查进程名或命令行是否匹配 worker、yt-dlp、ffmpeg、php
+    if (file_exists("/proc/$pid/cmdline")) {
+        $cmdline = @file_get_contents("/proc/$pid/cmdline");
+        if ($cmdline !== false && !empty($cmdline)) {
+            $keywords = ['worker.sh', 'yt-dlp', 'ffmpeg', 'ffprobe', 'scheduler.php', 'ytdlp'];
+            foreach ($keywords as $kw) {
+                if (stripos($cmdline, $kw) !== false) {
+                    return true;
+                }
+            }
+            // PID 存在但属于无关系统进程（PID 复用），判定为非本任务活跃进程
+            return false;
+        }
+    }
+    return true;
+}
+
+/**
+ * 递归获取指定进程树的所有后代 PID（支持跨级查找孙进程）
+ */
+function get_process_descendants($pid) {
+    $pid = intval($pid);
+    if ($pid <= 0) return [];
+    $pids = [];
+    $out = @shell_exec("pgrep -P $pid 2>/dev/null");
+    if (!empty($out)) {
+        $lines = explode("\n", trim($out));
+        foreach ($lines as $line) {
+            $child = intval(trim($line));
+            if ($child > 0) {
+                $pids[] = $child;
+                $pids = array_merge($pids, get_process_descendants($child));
+            }
+        }
+    }
+    return array_unique($pids);
+}
+
+/**
+ * 可靠终止指定 PID 及其全部后代子孙进程树 (yt-dlp, ffmpeg)，彻底消除孤儿进程
  */
 function kill_process_tree($pid) {
     $pid = intval($pid);
     if ($pid <= 0) return;
 
-    // 先发送 SIGTERM 让子进程和父进程优雅退出
-    @shell_exec("pkill -P $pid 2>/dev/null; kill -15 $pid 2>/dev/null");
+    // 递归查获全部子孙后代进程
+    $descendants = get_process_descendants($pid);
+    $all_pids = array_merge($descendants, [$pid]);
+
+    // 1. 发送 SIGTERM 优雅退出
+    foreach ($all_pids as $p) {
+        @shell_exec("kill -15 $p 2>/dev/null");
+    }
     usleep(150000); // 150ms 缓冲
 
-    // 检查是否仍有残留，若未退出则升级为 SIGKILL 强杀
-    if (is_process_running($pid)) {
-        @shell_exec("pkill -9 -P $pid 2>/dev/null; kill -9 $pid 2>/dev/null");
+    // 2. 检查仍存活的残留进程，升级为 SIGKILL 强杀
+    foreach ($all_pids as $p) {
+        if (is_process_running($p)) {
+            @shell_exec("kill -9 $p 2>/dev/null");
+        }
     }
 }
 

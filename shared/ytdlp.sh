@@ -212,6 +212,10 @@ case "$1" in
         pkill -15 -f 'worker.sh' 2>/dev/null || true
         pkill -15 -f 'yt-dlp' 2>/dev/null || true
         pkill -15 -f 'ffmpeg' 2>/dev/null || true
+        sleep 0.5
+        pkill -9 -f 'worker.sh' 2>/dev/null || true
+        pkill -9 -f 'yt-dlp' 2>/dev/null || true
+        pkill -9 -f 'ffmpeg' 2>/dev/null || true
         rm -f "$PID_FILE" 2>/dev/null || true
 
         now_str=$(date '+%Y-%m-%d %H:%M:%S')
