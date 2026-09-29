@@ -22,12 +22,14 @@ echo "=========================================================="
 echo "==> Building QNAP yt-dlp Dual Packages (Version: ${QPKG_VER})"
 echo "=========================================================="
 
-# 备份初始 qpkg.cfg
+# 备份初始 qpkg.cfg 与 build_version
 cp qpkg.cfg qpkg.cfg.bak
-trap 'mv -f qpkg.cfg.bak qpkg.cfg 2>/dev/null || true' EXIT INT TERM
+cp shared/build_version shared/build_version.bak 2>/dev/null || true
+trap 'mv -f qpkg.cfg.bak qpkg.cfg 2>/dev/null || true; mv -f shared/build_version.bak shared/build_version 2>/dev/null || true' EXIT INT TERM
 
 # 写入目标版本号
 python3 -c "import re; s=open('qpkg.cfg').read(); s=re.sub(r'QPKG_VER=.*', 'QPKG_VER=\"${QPKG_VER}\"', s); open('qpkg.cfg', 'w').write(s)"
+echo "${QPKG_VER}" > shared/build_version
 
 # 1. 确保 yt-dlp 核心文件存在（x86_64 和 arm_64）
 mkdir -p x86_64 arm_64 /tmp/ytdlp_dl_tmp

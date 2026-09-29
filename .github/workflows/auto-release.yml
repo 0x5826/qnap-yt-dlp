@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       target_version:
-        description: '指定构建版本（留空则根据 shared/build_version 自动发布，例如 1.0.3）'
+        description: '指定构建版本（留空则根据 shared/build_version 自动发布为 v1.0.3-YYYYMMDD）'
         required: false
         default: ''
       force_build:
@@ -66,15 +66,23 @@ jobs:
           
           SHOULD_BUILD="false"
           TARGET_VER="$CORE_VER"
-          TAG_NAME="v$CORE_VER"
+          TAG_NAME="v${CORE_VER}-${BUILD_DATE}"
           
           if [[ "$EVENT" == "push" ]]; then
             SHOULD_BUILD="true"
             echo "触发模式: main 分支核心文件变更推送 -> 启动单次全量构建 ($TAG_NAME)"
           elif [[ "$EVENT" == "workflow_dispatch" ]]; then
             if [ -n "$INPUT_VER" ]; then
-              TARGET_VER="${INPUT_VER#v}"
-              TAG_NAME="v${TARGET_VER}"
+              CLEAN_IN="${INPUT_VER#v}"
+              if [[ "$CLEAN_IN" == *"-"* ]]; then
+                TARGET_VER="$CLEAN_IN"
+                TAG_NAME="v${CLEAN_IN}"
+                CORE_VER="${CLEAN_IN%%-*}"
+              else
+                TARGET_VER="$CLEAN_IN"
+                TAG_NAME="v${CLEAN_IN}-${BUILD_DATE}"
+                CORE_VER="$CLEAN_IN"
+              fi
             fi
             SHOULD_BUILD="true"
             echo "触发模式: 手动触发 -> 生成构建版本: $TAG_NAME"
