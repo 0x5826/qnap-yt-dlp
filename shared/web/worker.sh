@@ -28,7 +28,10 @@ TASK_LOG_DIR="$CONF_DIR/logs/tasks/$TASK_ID"
 
 export PATH="$BIN_DIR:/mnt/ext/opt/apache/bin:/mnt/ext/opt/apache/links:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
 export TMPDIR="$CONF_DIR/tmp"
-mkdir -p "$CONF_DIR/tmp" 2>/dev/null
+export TEMP="$CONF_DIR/tmp"
+export TMP="$CONF_DIR/tmp"
+export PYTHONPYCACHEPREFIX="$CONF_DIR/tmp/pycache"
+mkdir -p "$CONF_DIR/tmp" "$CONF_DIR/tmp/pycache" 2>/dev/null
 
 # 动态寻找 PHP 解释器
 PHP_BIN=""

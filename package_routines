@@ -6,16 +6,20 @@ PKG_MAIN_REMOVE="{
     killall -9 ytdlp_daemon 2>/dev/null || true
     pkill -9 -f 'ytdlp.sh daemon' 2>/dev/null || true
     pkill -9 -f 'yt-dlp' 2>/dev/null || true
+    killall -9 yt-dlp ffmpeg 2>/dev/null || true
 
     # 2. 清理系统级 CLI 软链接
     rm -f /usr/sbin/yt-dlp /usr/bin/yt-dlp /usr/local/bin/yt-dlp 2>/dev/null
 
     # 3. 清理 Apache Web 软链接
     rm -f /share/Web/ytdlp /share/Qweb/ytdlp /share/CACHEDEV1_DATA/Web/ytdlp 2>/dev/null
+
+    # 4. 彻底释放系统 /tmp 内存盘中的一切历史残留
+    rm -rf /tmp/.ytdlp* /tmp/_MEI* /tmp/ytdlp* 2>/dev/null || true
 }"
 
 ######################################################################
-# 安装/升级前初始化 (pkg_init)：原子热备份
+# 安装/升级前初始化 (pkg_init)：安全数据盘热备份（绝不触碰 /tmp 内存盘）
 ######################################################################
 pkg_init()
 {
@@ -25,11 +29,31 @@ pkg_init()
     fi
     [ -z "$cur_path" ] && cur_path="$SYS_QPKG_DIR"
 
-    rm -rf /tmp/.ytdlp_upgrade_backup 2>/dev/null
+    # 主动释放系统 /tmp 内存盘的历史残留
+    rm -rf /tmp/.ytdlp* /tmp/_MEI* /tmp/ytdlp* 2>/dev/null || true
+
+    # 备份目录强制放置于数据盘，严禁写入 64MB /tmp 内存盘
+    local data_backup_dir=""
+    if [ -n "$cur_path" ] && [ -d "${cur_path%/*}" ]; then
+        data_backup_dir="${cur_path%/*}/.ytdlp_upgrade_backup"
+    else
+        data_backup_dir="/share/Public/.ytdlp_upgrade_backup"
+    fi
+
+    rm -rf "$data_backup_dir" 2>/dev/null
+
+    # 仅备份纯文本业务配置文件，严格跳过 conf/tmp 及其所有 _MEI* 解压包
     if [ -n "$cur_path" ] && [ -d "$cur_path/conf" ]; then
-        if [ "$(ls -A "$cur_path/conf" 2>/dev/null)" ]; then
-            mkdir -p /tmp/.ytdlp_upgrade_backup
-            cp -rf "$cur_path/conf/"* /tmp/.ytdlp_upgrade_backup/ 2>/dev/null
+        mkdir -p "$data_backup_dir"
+        for conf_file in config.json cookies.txt tasks.json .component_versions.json; do
+            if [ -f "$cur_path/conf/$conf_file" ]; then
+                cp -f "$cur_path/conf/$conf_file" "$data_backup_dir/" 2>/dev/null
+            fi
+        done
+        # 若存在日志目录，仅备份轻量级 daemon.log
+        if [ -f "$cur_path/conf/logs/daemon.log" ]; then
+            mkdir -p "$data_backup_dir/logs"
+            tail -n 200 "$cur_path/conf/logs/daemon.log" > "$data_backup_dir/logs/daemon.log" 2>/dev/null
         fi
     fi
 }
@@ -48,13 +72,21 @@ pkg_post_install()
 
     mkdir -p "$target_path/conf"
 
-    # 1. 优先还原备份配置，并执行非空完整性校验
-    if [ -d "/tmp/.ytdlp_upgrade_backup" ]; then
-        cp -rf /tmp/.ytdlp_upgrade_backup/* "$target_path/conf/" 2>/dev/null
-        if [ -d "$target_path/conf" ] && [ "$(ls -A "$target_path/conf" 2>/dev/null)" ]; then
-            rm -rf /tmp/.ytdlp_upgrade_backup 2>/dev/null
-        fi
+    # 1. 优先从数据盘还原备份配置
+    local data_backup_dir=""
+    if [ -n "$target_path" ] && [ -d "${target_path%/*}" ]; then
+        data_backup_dir="${target_path%/*}/.ytdlp_upgrade_backup"
+    else
+        data_backup_dir="/share/Public/.ytdlp_upgrade_backup"
     fi
+
+    if [ -d "$data_backup_dir" ]; then
+        cp -rf "$data_backup_dir/"* "$target_path/conf/" 2>/dev/null
+        rm -rf "$data_backup_dir" 2>/dev/null
+    fi
+    # 兼容清理早期版本可能残留于 /tmp 的升级备份与解压目录
+    rm -rf /tmp/.ytdlp_upgrade_backup /tmp/.ytdlp* /tmp/_MEI* /tmp/ytdlp* 2>/dev/null || true
+
     mkdir -p "$target_path/conf/logs" "$target_path/conf/tmp" "$target_path/bin"
     chmod -Rf 777 "$target_path/conf" 2>/dev/null || true
 

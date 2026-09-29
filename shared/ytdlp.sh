@@ -94,8 +94,12 @@ setup_arch_binaries() {
         cat << EOF > /usr/bin/yt-dlp
 #!/bin/sh
 export TMPDIR="$TMP_DIR"
+export TEMP="$TMP_DIR"
+export TMP="$TMP_DIR"
+export PYTHONPYCACHEPREFIX="$TMP_DIR/pycache"
 [ ! -d "\$TMPDIR" ] && mkdir -p "\$TMPDIR" 2>/dev/null
-exec "$BIN_DIR/yt-dlp" "\$@"
+[ ! -d "\$PYTHONPYCACHEPREFIX" ] && mkdir -p "\$PYTHONPYCACHEPREFIX" 2>/dev/null
+exec "$BIN_DIR/yt-dlp" --paths "temp:\$TMPDIR" "\$@"
 EOF
         chmod +x /usr/bin/yt-dlp 2>/dev/null || true
     fi
@@ -169,10 +173,10 @@ case "$1" in
         link_webui
         sync_system_icons
 
-        # 释放系统 /tmp 内存盘：清理历史残留的 PyInstaller 临时解压孤儿目录
-        rm -rf /tmp/_MEI* 2>/dev/null || true
+        # 释放系统 /tmp 内存盘：彻底清理一切历史残留的 PyInstaller 解压目录与旧版备份
+        rm -rf /tmp/_MEI* /tmp/.ytdlp* /tmp/ytdlp* 2>/dev/null || true
         # 清理数据盘内部临时目录的历史孤儿文件
-        rm -rf "$TMP_DIR"/_MEI* "$TMP_DIR"/tmp_* 2>/dev/null || true
+        rm -rf "$TMP_DIR"/_MEI* "$TMP_DIR"/tmp_* "$TMP_DIR"/pycache/* 2>/dev/null || true
 
         # 启动时自动触发一次队列补刀，接续未完成的断点任务
         if [ -f "$QPKG_ROOT/web/scheduler.php" ] && [ -n "$PHP_BIN" ]; then

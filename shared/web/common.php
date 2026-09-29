@@ -21,12 +21,39 @@ define('PID_FILE', CONF_DIR . '/ytdlp_daemon.pid');
 define('BIN_DIR', BASE_DIR . '/bin');
 define('CUSTOM_TMP_DIR', CONF_DIR . '/tmp');
 
-// 关键规避：重定向 TMPDIR 至数据盘，彻底免疫 QTS 系统 /tmp 64MB 内存盘满载崩溃
+// 关键规避：重定向所有临时目录及 Python 缓存至数据盘，彻底免疫 QTS 系统 /tmp 64MB 内存盘满载崩溃
 if (!is_dir(CONF_DIR)) @mkdir(CONF_DIR, 0755, true);
 if (!is_dir(LOGS_DIR)) @mkdir(LOGS_DIR, 0755, true);
 if (!is_dir(CUSTOM_TMP_DIR)) @mkdir(CUSTOM_TMP_DIR, 0777, true);
+$pycache_dir = CUSTOM_TMP_DIR . '/pycache';
+if (!is_dir($pycache_dir)) @mkdir($pycache_dir, 0777, true);
+
 putenv("TMPDIR=" . CUSTOM_TMP_DIR);
+putenv("TEMP=" . CUSTOM_TMP_DIR);
+putenv("TMP=" . CUSTOM_TMP_DIR);
+putenv("PYTHONPYCACHEPREFIX=" . $pycache_dir);
 $_ENV['TMPDIR'] = CUSTOM_TMP_DIR;
+$_ENV['TEMP'] = CUSTOM_TMP_DIR;
+$_ENV['TMP'] = CUSTOM_TMP_DIR;
+$_ENV['PYTHONPYCACHEPREFIX'] = $pycache_dir;
+
+/**
+ * 主动清理系统 /tmp 内存盘中历史残留的 _MEI* 解压包及升级备份，保全 QTS 系统登录与 Session 写入
+ */
+function purge_system_tmp_garbage() {
+    $meis = @glob('/tmp/_MEI*');
+    if ($meis) {
+        foreach ($meis as $m) {
+            if (is_dir($m)) @shell_exec('rm -rf ' . escapeshellarg($m) . ' 2>/dev/null');
+        }
+    }
+    $backups = @glob('/tmp/.ytdlp*');
+    if ($backups) {
+        foreach ($backups as $b) {
+            @shell_exec('rm -rf ' . escapeshellarg($b) . ' 2>/dev/null');
+        }
+    }
+}
 
 // 强制初始化 UTF-8 语言环境，规避 Linux/QNAP C locale 下 escapeshellarg 吞噬中文文件名的致命缺陷
 @setlocale(LC_CTYPE, 'en_US.UTF-8', 'C.UTF-8', 'zh_CN.UTF-8', 'UTF-8');

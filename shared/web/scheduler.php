@@ -531,6 +531,9 @@ if (!empty($purged_pids)) {
     @file_put_contents(CONF_DIR . '/logs/daemon.log', "[" . date('Y-m-d H:i:s') . "] [SYSTEM] 自动巡检并终结脱管孤儿下载进程: " . implode(', ', $purged_pids) . "\n", FILE_APPEND | LOCK_EX);
 }
 
+// 4. 系统 /tmp 内存盘防卫式熔断自愈：主动清除外部残留，保全 QTS 登录与 Session 写入
+purge_system_tmp_garbage();
+
 } finally {
     if ($fp) {
         flock($fp, LOCK_UN);

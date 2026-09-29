@@ -22,7 +22,8 @@ if (!$ytdlp_bin) {
     exit(1);
 }
 
-$cmd = 'TMPDIR=' . safe_escapeshellarg(CUSTOM_TMP_DIR) . ' ' . safe_escapeshellarg($ytdlp_bin);
+$pycache_dir = CUSTOM_TMP_DIR . '/pycache';
+$cmd = 'TMPDIR=' . safe_escapeshellarg(CUSTOM_TMP_DIR) . ' TEMP=' . safe_escapeshellarg(CUSTOM_TMP_DIR) . ' TMP=' . safe_escapeshellarg(CUSTOM_TMP_DIR) . ' PYTHONPYCACHEPREFIX=' . safe_escapeshellarg($pycache_dir) . ' ' . safe_escapeshellarg($ytdlp_bin) . ' --paths ' . safe_escapeshellarg('temp:' . CUSTOM_TMP_DIR);
 
 // FFmpeg location
 $ffmpeg_bin = get_binary_path('ffmpeg');
