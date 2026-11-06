@@ -91,6 +91,10 @@ echo "Command: $CMD" >> "$OUTPUT_LOG"
 eval "$CMD" >> "$OUTPUT_LOG" 2>&1
 EC=$?
 
+if [ $EC -eq 0 ] && [ -f "$WEB_DIR/organize_output.php" ] && [ -n "$PHP_BIN" ]; then
+    "$PHP_BIN" "$WEB_DIR/organize_output.php" "$TASK_FILE" "$TASK_LOG_DIR" >> "$OUTPUT_LOG" 2>&1
+fi
+
 echo "$EC" > "$EXIT_CODE_FILE"
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] Task finished with exit code $EC." >> "$OUTPUT_LOG"
 rm -f "$PID_FILE"

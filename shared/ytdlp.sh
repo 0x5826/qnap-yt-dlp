@@ -35,6 +35,7 @@ export TMPDIR="$TMP_DIR"
 
 mkdir -p "$BIN_DIR" "$CONF_DIR" "$LOGS_DIR" "$TMP_DIR" 2>/dev/null
 chmod 777 "$CONF_DIR" "$LOGS_DIR" "$TMP_DIR" 2>/dev/null || true
+chmod 775 "$QPKG_ROOT" "$BIN_DIR" 2>/dev/null || true
 
 # 建立 php 软链接以备全局调用
 if [ -n "$PHP_BIN" ] && [ -x "$PHP_BIN" ]; then
@@ -70,10 +71,10 @@ setup_arch_binaries() {
         fi
 
         if [ -n "$src_dir" ] && [ -f "$src_dir/$b" ]; then
-            chmod +x "$src_dir/$b" 2>/dev/null || true
+            chmod 775 "$src_dir" "$src_dir/$b" 2>/dev/null || true
             ln -sf "$src_dir/$b" "$BIN_DIR/$b" 2>/dev/null || true
         elif [ -f "$QPKG_ROOT/$b" ]; then
-            chmod +x "$QPKG_ROOT/$b" 2>/dev/null || true
+            chmod 775 "$QPKG_ROOT/$b" 2>/dev/null || true
             ln -sf "$QPKG_ROOT/$b" "$BIN_DIR/$b" 2>/dev/null || true
         elif [ "$b" != "yt-dlp" ] && [ -x "/share/CACHEDEV1_DATA/.qpkg/CayinMediaViewer/CodexPackExt/static/bin/$b" ]; then
             ln -sf "/share/CACHEDEV1_DATA/.qpkg/CayinMediaViewer/CodexPackExt/static/bin/$b" "$BIN_DIR/$b" 2>/dev/null || true

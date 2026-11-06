@@ -709,13 +709,16 @@ function get_cached_component_versions($force = false) {
         }
     }
 
+    purge_system_tmp_garbage();
+
     $ytdlp_bin = get_binary_path('yt-dlp');
     $ffmpeg_bin = get_binary_path('ffmpeg');
 
     $ytdlp_ver = '未就绪';
     if ($ytdlp_bin) {
         // 关键防护：命令前缀强制内联指定 TMPDIR 为数据盘，避免 PyInstaller 解压到 QTS 64MB /tmp
-        $cmd = 'TMPDIR=' . escapeshellarg(CUSTOM_TMP_DIR) . ' ' . escapeshellarg($ytdlp_bin) . ' --version 2>/dev/null';
+        $pycache = CUSTOM_TMP_DIR . '/pycache';
+        $cmd = 'TMPDIR=' . escapeshellarg(CUSTOM_TMP_DIR) . ' TEMP=' . escapeshellarg(CUSTOM_TMP_DIR) . ' TMP=' . escapeshellarg(CUSTOM_TMP_DIR) . ' PYTHONPYCACHEPREFIX=' . escapeshellarg($pycache) . ' ' . escapeshellarg($ytdlp_bin) . ' --version 2>/dev/null';
         $ver_out = shell_exec($cmd);
         if ($ver_out) $ytdlp_ver = trim($ver_out);
     }

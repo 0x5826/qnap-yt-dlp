@@ -372,37 +372,53 @@ mutate_tasks(function($tasks) use ($max_concurrent, $now) {
                     $s = $elapsed % 60;
                     $cost_str = ($m > 0) ? "{$m}分{$s}秒" : "{$s}秒";
 
-                    // 深度扫描输出日志获取最终产物路径与元数据
-                    $meta = inspect_task_log($output_log);
-                    $target_file = $meta['target_file'] ?: ($task['target_file'] ?? $meta['dest_file'] ?? $task['dest_file'] ?? '');
-                    if (!empty($target_file) && (strpos($task['title'], '批量任务') !== false || strpos($task['title'], '批量下载任务') !== false)) {
-                        $fname = basename($target_file);
-                        $clean_t = preg_replace('/(\.f[0-9]+)?\.[a-zA-Z0-9]+$/', '', $fname);
-                        if (!empty($clean_t)) {
-                            $plat = $task['platform'] ?: '网络媒体';
-                            $clean_no_plat = clean_platform_prefix($clean_t, $plat);
-                            $spec = $task['media_spec'] ?: '';
-                            $task['title'] = !empty($spec) ? "{$plat} - {$clean_no_plat} - {$spec}" : "{$plat} - {$clean_no_plat}";
-                        }
-                    }
+                    // 优先读取产物规整器结果
+                    $org_file = $task_dir . '/organizer_result.json';
+                    $org_data = file_exists($org_file) ? json_decode(@file_get_contents($org_file), true) : null;
 
-                    // 优先探测最终物理落盘文件大小
+                    $target_file = '';
                     $final_bytes = 0;
-                    if (!empty($target_file) && file_exists($target_file)) {
-                        $final_bytes = @filesize($target_file);
-                    }
 
-                    // 若未直接命中，尝试在下载目录中搜索最近 5 分钟内生成的文件
-                    if ($final_bytes <= 0 && !empty($task['download_dir']) && is_dir($task['download_dir'])) {
-                        $dir_files = @scandir($task['download_dir']);
-                        if ($dir_files) {
-                            foreach ($dir_files as $df) {
-                                if ($df === '.' || $df === '..' || substr($df, -5) === '.part') continue;
-                                $candidate = rtrim($task['download_dir'], '/') . '/' . $df;
-                                if (is_file($candidate) && ($now - filemtime($candidate) < 300)) {
-                                    $final_bytes = @filesize($candidate);
-                                    $target_file = $candidate;
-                                    break;
+                    if (!empty($org_data) && !empty($org_data['primary_file'])) {
+                        $target_file = $org_data['primary_file'];
+                        $final_bytes = intval($org_data['total_bytes'] ?? 0);
+                        $task['file_count_total'] = intval($org_data['file_count'] ?? 1);
+                        if (!empty($org_data['created_folder'])) {
+                            $task['is_folder'] = true;
+                            $task['folder_path'] = $org_data['folder_path'] ?? '';
+                        }
+                    } else {
+                        // 深度扫描输出日志获取最终产物路径与元数据（降级兼容）
+                        $meta = inspect_task_log($output_log);
+                        $target_file = $meta['target_file'] ?: ($task['target_file'] ?? $meta['dest_file'] ?? $task['dest_file'] ?? '');
+                        if (!empty($target_file) && (strpos($task['title'], '批量任务') !== false || strpos($task['title'], '批量下载任务') !== false)) {
+                            $fname = basename($target_file);
+                            $clean_t = preg_replace('/(\.f[0-9]+)?\.[a-zA-Z0-9]+$/', '', $fname);
+                            if (!empty($clean_t)) {
+                                $plat = $task['platform'] ?: '网络媒体';
+                                $clean_no_plat = clean_platform_prefix($clean_t, $plat);
+                                $spec = $task['media_spec'] ?: '';
+                                $task['title'] = !empty($spec) ? "{$plat} - {$clean_no_plat} - {$spec}" : "{$plat} - {$clean_no_plat}";
+                            }
+                        }
+
+                        // 优先探测最终物理落盘文件大小
+                        if (!empty($target_file) && file_exists($target_file)) {
+                            $final_bytes = @filesize($target_file);
+                        }
+
+                        // 若未直接命中，尝试在下载目录中搜索最近 5 分钟内生成的文件
+                        if ($final_bytes <= 0 && !empty($task['download_dir']) && is_dir($task['download_dir'])) {
+                            $dir_files = @scandir($task['download_dir']);
+                            if ($dir_files) {
+                                foreach ($dir_files as $df) {
+                                    if ($df === '.' || $df === '..' || substr($df, -5) === '.part') continue;
+                                    $candidate = rtrim($task['download_dir'], '/') . '/' . $df;
+                                    if (is_file($candidate) && ($now - filemtime($candidate) < 300)) {
+                                        $final_bytes = @filesize($candidate);
+                                        $target_file = $candidate;
+                                        break;
+                                    }
                                 }
                             }
                         }
@@ -414,6 +430,7 @@ mutate_tasks(function($tasks) use ($max_concurrent, $now) {
                         $task['downloaded'] = $task['total_size'];
                         $task['target_file'] = $target_file;
                     } else {
+                        $meta = inspect_task_log($output_log);
                         $task['total_size'] = $meta['total_size'] ?: ($task['total_size'] ?? $meta['last_downloaded'] ?? $task['downloaded'] ?? '完整');
                         if (empty($task['downloaded']) || $task['downloaded'] === '0 B') {
                             $task['downloaded'] = $task['total_size'];

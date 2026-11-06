@@ -63,7 +63,13 @@ $template = preg_replace('/%\(title\)(?:\.[0-9]+)?s/', '%(title).40s', $template
 if ($template === '%(title).40s [%(id)s].%(ext)s' || $template === '%(extractor_key)s-%(title).40s [%(id)s].%(ext)s') {
     $template = '%(extractor_key)s - %(title).40s [%(id)s].%(ext)s';
 }
-$output_path = rtrim($download_dir, '/') . '/' . ltrim($template, '/');
+
+$task_id = $task['id'] ?? 'tmp';
+$staging_dir = rtrim($download_dir, '/') . '/.ytdlp_tmp_' . $task_id;
+if (!is_dir($staging_dir)) {
+    @mkdir($staging_dir, 0777, true);
+}
+$output_path = $staging_dir . '/' . ltrim($template, '/');
 $cmd .= ' -o ' . safe_escapeshellarg($output_path);
 
 // Audio only mode

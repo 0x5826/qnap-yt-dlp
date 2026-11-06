@@ -307,7 +307,8 @@ function handle_parse_url($input) {
     }
 
     $config = get_app_config();
-    $cmd = 'TMPDIR=' . safe_escapeshellarg(CUSTOM_TMP_DIR) . ' ' . safe_escapeshellarg($ytdlp_bin) . ' -J --no-warnings --no-check-certificates --flat-playlist --socket-timeout 20';
+    $pycache = CUSTOM_TMP_DIR . '/pycache';
+    $cmd = 'TMPDIR=' . safe_escapeshellarg(CUSTOM_TMP_DIR) . ' TEMP=' . safe_escapeshellarg(CUSTOM_TMP_DIR) . ' TMP=' . safe_escapeshellarg(CUSTOM_TMP_DIR) . ' PYTHONPYCACHEPREFIX=' . safe_escapeshellarg($pycache) . ' ' . safe_escapeshellarg($ytdlp_bin) . ' -J --no-warnings --no-check-certificates --flat-playlist --socket-timeout 20';
 
     if (!empty($config['proxy'])) {
         $cmd .= ' --proxy ' . safe_escapeshellarg($config['proxy']);
@@ -722,6 +723,13 @@ function handle_delete_task($input) {
                 if (is_dir($task_dir)) {
                     shell_exec("rm -rf " . safe_escapeshellarg($task_dir));
                 }
+                $dl_dir = sanitize_download_dir($t['download_dir'] ?? '');
+                if (!empty($dl_dir)) {
+                    $stg_dir = rtrim($dl_dir, '/') . '/.ytdlp_tmp_' . $task_id;
+                    if (is_dir($stg_dir)) {
+                        @shell_exec("rm -rf " . safe_escapeshellarg($stg_dir));
+                    }
+                }
             } else {
                 $new_tasks[] = $t;
             }
@@ -912,8 +920,10 @@ function handle_update_ytdlp() {
     if (!$ytdlp_bin) {
         json_response(['code' => 500, 'message' => '未找到 yt-dlp 二进制文件'], 500);
     }
-    $cmd = 'TMPDIR=' . escapeshellarg(CUSTOM_TMP_DIR) . ' ' . escapeshellarg($ytdlp_bin) . ' -U 2>&1';
+    $pycache = CUSTOM_TMP_DIR . '/pycache';
+    $cmd = 'TMPDIR=' . escapeshellarg(CUSTOM_TMP_DIR) . ' TEMP=' . escapeshellarg(CUSTOM_TMP_DIR) . ' TMP=' . escapeshellarg(CUSTOM_TMP_DIR) . ' PYTHONPYCACHEPREFIX=' . escapeshellarg($pycache) . ' ' . escapeshellarg($ytdlp_bin) . ' -U 2>&1';
     $output = shell_exec($cmd);
+    purge_system_tmp_garbage();
     get_cached_component_versions(true);
     json_response(['code' => 0, 'message' => '更新指令执行完毕', 'data' => ['output' => $output]]);
 }

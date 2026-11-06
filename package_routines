@@ -105,7 +105,8 @@ pkg_post_install()
     # 3. 权限修正与软链接初始化
     chown -R admin:administrators "$target_path" 2>/dev/null
     chmod -Rf 777 "$target_path/conf" 2>/dev/null || true
-    chmod +x "$target_path/x86_64/yt-dlp" "$target_path/arm_64/yt-dlp" "$target_path/ytdlp.sh" "$target_path/shared/ytdlp.sh" 2>/dev/null || true
+    chmod 775 "$target_path" "$target_path/x86_64" "$target_path/arm_64" 2>/dev/null || true
+    chmod 775 "$target_path/x86_64/yt-dlp" "$target_path/arm_64/yt-dlp" "$target_path/yt-dlp" "$target_path/ytdlp.sh" "$target_path/shared/ytdlp.sh" 2>/dev/null || true
     chmod +x "$target_path/web/worker.sh" "$target_path/shared/web/worker.sh" 2>/dev/null || true
     [ -f "$target_path/x86_64/ffmpeg" ] && chmod +x "$target_path/x86_64/ffmpeg" "$target_path/x86_64/ffprobe" 2>/dev/null || true
     [ -f "$target_path/arm_64/ffmpeg" ] && chmod +x "$target_path/arm_64/ffmpeg" "$target_path/arm_64/ffprobe" 2>/dev/null || true
