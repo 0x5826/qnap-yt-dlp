@@ -663,6 +663,7 @@ function sweep_orphan_download_processes($valid_pids = []) {
 
     $killed = [];
     $my_pid = getmypid();
+    $now = time();
     $proc_dirs = @glob('/proc/[0-9]*', GLOB_ONLYDIR);
     if (!$proc_dirs) return $killed;
 
@@ -675,12 +676,32 @@ function sweep_orphan_download_processes($valid_pids = []) {
         $cmdline_file = $dir . '/cmdline';
         if (!file_exists($cmdline_file)) continue;
 
+        // 防早产误杀：启动不足 20 秒的新生进程严禁触碰
+        $proc_mtime = @filemtime($cmdline_file);
+        if ($proc_mtime && ($now - $proc_mtime) < 20) {
+            continue;
+        }
+
         $cmdline = @file_get_contents($cmdline_file);
         if ($cmdline === false || empty($cmdline)) continue;
 
-        // 识别目标孤儿指纹：yt-dlp、worker.sh、或属于 ytdlp 套件目录下的 ffmpeg
+        // 严格豁免探测与管理命令（版本检查、更新检查、URL元数据解析、调度器等）
+        if (strpos($cmdline, '--version') !== false ||
+            strpos($cmdline, ' -U') !== false ||
+            strpos($cmdline, ' -J') !== false ||
+            strpos($cmdline, '--dump-json') !== false ||
+            strpos($cmdline, '--flat-playlist') !== false ||
+            strpos($cmdline, 'scheduler.php') !== false ||
+            strpos($cmdline, 'build_command.php') !== false ||
+            strpos($cmdline, 'organize_output.php') !== false) {
+            continue;
+        }
+
+        // 仅清理真正属于下载任务且脱管的孤儿进程（包含任务指纹或长期未被认领的 worker/ffmpeg）
         $is_orphan = false;
-        if (strpos($cmdline, 'yt-dlp') !== false || strpos($cmdline, 'worker.sh') !== false) {
+        if (strpos($cmdline, 'worker.sh') !== false) {
+            $is_orphan = true;
+        } elseif (strpos($cmdline, 'yt-dlp') !== false && (strpos($cmdline, '--progress-template') !== false || strpos($cmdline, '.ytdlp_tmp_') !== false || strpos($cmdline, 'task_') !== false)) {
             $is_orphan = true;
         } elseif (strpos($cmdline, 'ffmpeg') !== false && (strpos($cmdline, 'ytdlp') !== false || (strpos($cmdline, 'CACHEDEV') !== false && strpos($cmdline, '.part') !== false))) {
             $is_orphan = true;
@@ -704,8 +725,14 @@ function get_cached_component_versions($force = false) {
     if (!$force && file_exists($cache_file)) {
         $content = @file_get_contents($cache_file);
         $data = json_decode($content, true);
-        if (is_array($data) && ($now - intval($data['cached_at'] ?? 0)) < 3600) {
-            return $data;
+        if (is_array($data)) {
+            $cached_at = intval($data['cached_at'] ?? 0);
+            $ytdlp_ready = ($data['ytdlp_version'] ?? '') !== '未就绪';
+            // 正常就绪版本缓存 3600 秒；未就绪状态最多只容忍 5 秒即重试，严禁固化假死状态
+            $ttl = $ytdlp_ready ? 3600 : 5;
+            if (($now - $cached_at) < $ttl) {
+                return $data;
+            }
         }
     }
 

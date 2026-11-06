@@ -192,7 +192,7 @@ case "$1" in
         if [ -x "$BIN_DIR/yt-dlp" ]; then
             ytdlp_real=$(readlink -f "$BIN_DIR/yt-dlp" 2>/dev/null || echo "")
             if [ -n "$ytdlp_real" ] && [ "$ytdlp_real" != "/usr/bin/yt-dlp" ]; then
-                ytdlp_v=$(TMPDIR="$TMP_DIR" "$BIN_DIR/yt-dlp" --version 2>/dev/null || echo "已就绪")
+                ytdlp_v=$(TMPDIR="$TMP_DIR" TEMP="$TMP_DIR" TMP="$TMP_DIR" PYTHONPYCACHEPREFIX="$TMP_DIR/pycache" "$BIN_DIR/yt-dlp" --version 2>/dev/null || echo "已就绪")
             else
                 ytdlp_v="未就绪 (等待组件初始化)"
             fi
